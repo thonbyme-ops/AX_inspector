@@ -1,0 +1,73 @@
+<div class="result" data-token="{{ token }}">
+  <h2>비교 결과</h2>
+  <div class="file-labels">
+    <span>A: {{ name_a }} {% if comparison.source_a == 'ocr' %}<span class="badge badge-ocr">OCR 추출</span>{% endif %}</span>
+    <span>B: {{ name_b }} {% if comparison.source_b == 'ocr' %}<span class="badge badge-ocr">OCR 추출</span>{% endif %}</span>
+  </div>
+  {% if comparison.source_a == 'ocr' or comparison.source_b == 'ocr' %}
+  <p class="ocr-warning">⚠ 스캔 이미지 PDF는 OCR로 값을 추출했습니다. 인식 오차가 있을 수 있으니 원본과 대조 후 검증해주세요.</p>
+  {% endif %}
+
+  <h3>기본 정보</h3>
+  <table class="cmp-table meta-table">
+    <thead><tr><th>항목</th><th>A</th><th>B</th></tr></thead>
+    <tbody>
+      {% for m in comparison.meta_rows %}
+      <tr class="{{ 'diff' if m.diff else '' }}">
+        <td>{{ m.label }}</td>
+        <td>{{ m.a or '-' }}</td>
+        <td>{{ m.b or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>항목별 금액 비교</h3>
+  <table class="cmp-table items-table">
+    <thead>
+      <tr>
+        <th rowspan="2">구분</th>
+        <th colspan="2">계약금액</th>
+        <th colspan="2">전회누계 [A]</th>
+        <th colspan="2">기성율</th>
+        <th colspan="2">금회누계금액 [B]</th>
+        <th colspan="2">금회지급액 [C]</th>
+        <th colspan="2">비고</th>
+      </tr>
+      <tr>
+        <th>A</th><th>B</th><th>A</th><th>B</th><th>A</th><th>B</th>
+        <th>A</th><th>B</th><th>A</th><th>B</th><th>A</th><th>B</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in comparison.rows %}
+      <tr class="{{ 'key-field' if row.is_key_field else '' }} {{ 'row-diff' if row.has_diff else '' }}">
+        <td class="label-cell">{{ row.label }}{% if row.is_key_field %} <span class="badge badge-key">핵심항목</span>{% endif %}</td>
+        {% for col in ['계약금액','전회누계','기성율','금회누계금액','금회지급액','비고'] %}
+          {% set c = row.cols[col] %}
+          <td class="{{ 'cell-diff' if c.diff else '' }} {{ 'cell-missing' if row.missing_a else '' }}">{{ c.a if c.a is not none else ('' if row.missing_a else '-') }}</td>
+          <td class="{{ 'cell-diff' if c.diff else '' }} {{ 'cell-missing' if row.missing_b else '' }}">{{ c.b if c.b is not none else ('' if row.missing_b else '-') }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="summary-banner {{ 'summary-diff' if comparison.any_diff else 'summary-match' }}">
+    {% if comparison.any_diff %}
+      ⚠ 두 파일 간 값이 다른 항목이 있습니다. 색상으로 표시된 셀을 확인해주세요.
+    {% else %}
+      ✔ 두 파일의 추출 항목이 모두 일치합니다.
+    {% endif %}
+  </div>
+
+  <div class="verify-box">
+    <h3>검증</h3>
+    <label>검증자 성명 <input type="text" id="supervisor-name" placeholder="이름 입력"></label>
+    <div class="verify-buttons">
+      <button class="verify-yes" data-decision="yes">일치함 (Yes)</button>
+      <button class="verify-no" data-decision="no">불일치함 (No)</button>
+    </div>
+    <div id="verify-result"></div>
+  </div>
+</div>

@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>&lt;아이디어 및 실시 제안 신청서&gt; - AI 기반 기성고/준공검사 자동검증시스템</title>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        :root {
+            --primary-blue: #0056b3;
+            --blue-highlight: #0066cc;
+            --light-bg: #f8fafc;
+            --border-color: #cbd5e1;
+            --header-bg: #f1f5f9;
+            --text-main: #1e293b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+            background-color: #e2e8f0;
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 30px 15px;
+        }
+
+        .paper-container {
+            max-width: 850px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 50px 55px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .doc-title {
+            text-align: center;
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 25px;
+            letter-spacing: -0.5px;
+            color: #0f172a;
+        }
+
+        /* 공모 안내 박스 */
+        .info-box {
+            background-color: #f8fafc;
+            border: 1px solid #94a3b8;
+            padding: 16px 20px;
+            margin-bottom: 30px;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+
+        .info-box-header {
+            font-weight: 700;
+            font-size: 15px;
+            margin-bottom: 8px;
+            color: #0f172a;
+        }
+
+        .info-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .info-box li {
+            position: relative;
+            padding-left: 15px;
+            margin-bottom: 4px;
+            color: #334155;
+        }
+
+        .info-box li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #64748b;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-top: 35px;
+            margin-bottom: 12px;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-subnote {
+            font-size: 13px;
+            color: #64748b;
+            font-weight: normal;
+            margin-left: 10px;
+        }
+
+        /* 테이블 공통 스타일 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        th, td {
+            border: 1px solid #64748b;
+            padding: 10px 14px;
+            vertical-align: middle;
+        }
+
+        th {
+            background-color: var(--header-bg);
+            font-weight: 700;
+            text-align: center;
+            color: #0f172a;
+        }
+
+        td {
+            background-color: #ffffff;
+        }
+
+        /* 파란색 변경 영역 */
+        .editable-blue {
+            color: var(--blue-highlight);
+            font-weight: 600;
+        }
+
+        /* 기본 정보 테이블 */
+        .tbl-basic th {
+            width: 15%;
+        }
+
+        .tbl-basic td {
+            width: 35%;
+        }
+
+        .checkbox-group label {
+            margin-right: 15px;
+            cursor: default;
+        }
+
+        .checkbox-group input {
+            margin-right: 4px;
+        }
+
+        /* 2. 제안개요 테이블 */
+        .tbl-summary th {
+            width: 25%;
+        }
+
+        .summary-bullet-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .summary-bullet-list li {
+            position: relative;
+            padding-left: 14px;
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .summary-bullet-list li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: var(--blue-highlight);
+        }
+
+        /* 3. KPI 테이블 */
+        .tbl-kpi th {
+            text-align: center;
+        }
+
+        .tbl-kpi td {
+            text-align: center;
+        }
+
+        .tbl-kpi td.left-align {
+            text-align: left;
+        }
+
+        .tbl-kpi tr.highlight-row td {
+            background-color: #eff6ff;
+            font-weight: 700;
+        }
+
+        /* 서명란 */
+        .signature-container {
+            text-align: center;
+            margin-top: 40px;
+            margin-bottom: 30px;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        /* 붙임 영역 */
+        .attachment-section {
+            border-top: 2px dashed #cbd5e1;
+            margin-top: 40px;
+            padding-top: 30px;
+        }
+
+        .attachment-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 15px;
+        }
+
+        .attachment-box {
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 25px;
+            font-size: 13.5px;
+        }
+
+        .attachment-box h4 {
+            font-size: 15px;
+            color: #1e293b;
+            margin-top: 15px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 4px;
+        }
+
+        .attachment-box h4:first-child {
+            margin-top: 0;
+        }
+
+        .code-block {
+            background: #1e293b;
+            color: #f8fafc;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        /* Print Style */
+        @media print {
+            body {
+                background: none;
+                padding: 0;
+            }
+            .paper-container {
+                box-shadow: none;
+                padding: 20mm;
+                max-width: 100%;
+            }
+            .editable-blue {
+                color: #0056b3 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="paper-container">
+    
+    <div class="doc-title">&lt;아이디어 및 실시 제안 신청서&gt;</div>
+
+    <!-- 공모 안내 사항 -->
+    <div class="info-box">
+        <div class="info-box-header">■ 공모 안내 사항</div>
+        <ul>
+            <li>(목적) 업무 전주기(운영운전, 정비, 점검 안전, 구매·공사·용역, 경영지원 등) AI 활용 자원절감 성과 계량화 및 전사 확산</li>
+            <li>(구분) [아이디어 제안] 신규 AI 도입 아이디어 / [실시 제안] AI 적용 후 정량적 자원 절감 실적 보유 과제</li>
+            <li>(포상) 우수 제안, 프로젝트 시행 담당자에게 사장상, 해외 포상(CES 등) 제공 예정</li>
+        </ul>
+    </div>
+
+    <!-- 1. 기본 정보 -->
+    <div class="section-title">1. 기본 정보</div>
+    <table class="tbl-basic">
+        <tr>
+            <th>구분</th>
+            <td>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" checked disabled> 아이디어 제안</label>
+                    <label><input type="checkbox" disabled> 실시 제안</label>
+                </div>
+            </td>
+            <th>분야</th>
+            <td>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" disabled> 설비 안전</label>
+                    <label><input type="checkbox" disabled> 설비 운영</label><br>
+                    <label><input type="checkbox" checked disabled> 구매·공사·용역</label>
+                    <label><input type="checkbox" disabled> 교육/경영지원</label>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <th>제안명</th>
+            <td colspan="3" class="editable-blue">
+                [아이디어] Claude AI 기반 건설현장 기성·준공검사 증빙서류(보험료 등) 자동 추출 및 원본 데이터 비교 검증 시스템 구축을 통한 검증시간 90% 단축 및 연간 약 3.8억원 절감
+            </td>
+        </tr>
+    </table>
+
+    <!-- 2. 제안 개요 및 추진 배경 -->
+    <div class="section-title">2. 제안 개요 및 추진 배경</div>
+    <table class="tbl-summary">
+        <tr>
+            <th>추진 배경 및<br>현황 문제점</th>
+            <td class="editable-blue">
+                <ul class="summary-bullet-list">
+                    <li><strong>대규모 작업자 증빙 검증 업무의 과중</strong>: 건설사업소 공사관리 현장은 기성고 및 준공검사 시 현장당 최대 1,000여 명에 달하는 작업자의 4대 보험료(건강보험, 국민연금, 고용보험, 산재보험) 납부확인서, 출약부, 노무비 지급명세서 등 수천 장의 PDF 증빙 서류를 수작업으로 하나하나 일일이 체크함. 담당자 1인이 기성 1회 검증에 평균 5~7일(40시간 이상)을 연속 투입하여 극심한 업무 병목 현상 발생.</li>
+                    <li><strong>수작업 검증으로 인한 오지급·오류 위험</strong>: 인력 중심 대조 작업의 피로도로 과다 청구, 이중 청구, 타 현장 인원 누락/오적용 등의 정산 오류를 완벽히 적발하기 어려움.</li>
+                    <li><strong>통합 검증 및 이력 관리 시스템의 부재</strong>: 사내망 내에서 직원이 손쉽게 PDF/엑셀을 업로드하여 AI 기반으로 원본과 자동 대조하고 사용자별 검증 이력(Audit Log)을 남길 수 있는 웹 시스템이 부재함.</li>
+                </ul>
+            </td>
+        </tr>
+        <tr>
+            <th>AI 적용 핵심 내용<br>및 기술요소</th>
+            <td class="editable-blue">
+                <ul class="summary-bullet-list">
+                    <li><strong>Claude AI 기반 Multi-modal PDF Extraction Engine</strong>: 비전 및 문서 구조 분석 성능이 뛰어난 Claude LLM(Claude 3.5 Sonnet API)을 활용하여 서식이 다양하거나 스캔된 PDF 증빙 문서에서 성명, 주민번호, 보험료 납부액, 적용기간 등 정형 데이터를 100% 정밀 추출하여 엑셀(XLSX)로 Export.</li>
+                    <li><strong>자동 대조·검증 및 오차 산출 엔진 (Auto Matching Engine)</strong>: Export된 AI 데이터와 시공사가 제출한 원본 기성 청구/정산 내역서 데이터를 1:1 자동 매칭하여 보험료 요율 미달, 중복 청구, 작업일수 불일치 항목을 하이라이트.</li>
+                    <li><strong>사내망 전용 웹 애플리케이션 및 백엔드(Backend) 시스템</strong>: Python FastAPI 기반 사내망 전용 웹서버 구축 및 포트(e.g., 8080) 개방. 사용자 비밀번호 인증 계정 관리 및 개인별 검증 이력 DB 저장. 직관적 Drag & Drop Web UI 구성.</li>
+                </ul>
+            </td>
+        </tr>
+        <tr>
+            <th>자원 절감 내용</th>
+            <td class="editable-blue">
+                <ul class="summary-bullet-list">
+                    <li><strong>검증 시간 대폭 단축 (시간 절감)</strong>: 현장당 기성 1회당 검증 소요시간을 기존 40시간(5일)에서 4시간(0.5일)으로 <strong>90% 이상 단축</strong>.</li>
+                    <li><strong>공사비 정산 누수 차단 및 예산 절감 (비용 절감)</strong>: 4대 보험료 과다 청구 및 정산 누수를 사전 차단하여 <strong>연간 약 3억 8,000만 원 상당 예산 절감</strong>.</li>
+                    <li><strong>행정 정확도 및 신뢰성 향상</strong>: 수작업 검증 오류율 0%화 및 완벽한 검증 이력 관리를 통한 감사 대응력 강화.</li>
+                </ul>
+            </td>
+        </tr>
+    </table>
+
+    <!-- 3. 자원절감 성과계량 및 평가지표(KPI) -->
+    <div class="section-title">
+        3. 자원절감 성과계량 및 평가지표(KPI)
+        <span class="section-subnote">※ AI 적용 전/후를 비교하여 정량적 성과를 측정할 수 있도록 작성</span>
+    </div>
+    <table class="tbl-kpi">
+        <thead>
+            <tr>
+                <th>평가지표(KPI)</th>
+                <th>단위</th>
+                <th>개선 전(AI 도입 전)</th>
+                <th>개선 후(AI 도입 후)</th>
+                <th>절감율/ 개선효과</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="left-align editable-blue">기성·준공 검사 소요시간</td>
+                <td class="editable-blue">시간/회/현장</td>
+                <td class="editable-blue">40 시간 (5일 소요)</td>
+                <td class="editable-blue">4 시간 (반일 소요)</td>
+                <td class="editable-blue"><strong>90.0% 단축</strong> (36시간/회 절감)</td>
+            </tr>
+            <tr>
+                <td class="left-align editable-blue">연간 검증 업무 투입 공수</td>
+                <td class="editable-blue">시간/년</td>
+                <td class="editable-blue">1,440 시간/년 (10개 현장)</td>
+                <td class="editable-blue">144 시간/년</td>
+                <td class="editable-blue"><strong>90.0% 절감</strong> (1,296시간/년 절감)</td>
+            </tr>
+            <tr>
+                <td class="left-align editable-blue">담당자 인건비 행정비용</td>
+                <td class="editable-blue">만원/년</td>
+                <td class="editable-blue">7,200 만원/년</td>
+                <td class="editable-blue">720 만원/년</td>
+                <td class="editable-blue"><strong>90.0% 절감</strong> (6,480만원/년 절감)</td>
+            </tr>
+            <tr>
+                <td class="left-align editable-blue">보험료 과다/이중청구 차단액</td>
+                <td class="editable-blue">만원/년</td>
+                <td class="editable-blue">3,150 만원/년 (누수 발생)</td>
+                <td class="editable-blue">0 만원/년 (100% 차단)</td>
+                <td class="editable-blue"><strong>100% 예방</strong> (3,150만원/년 절감)</td>
+            </tr>
+            <tr class="highlight-row">
+                <td class="left-align editable-blue">종합 정량적 자원절감 총액</td>
+                <td class="editable-blue">만원/년</td>
+                <td class="editable-blue">42,350 만원/년</td>
+                <td class="editable-blue">4,320 만원/년</td>
+                <td class="editable-blue"><strong>89.8% 절감 (연 3억 8,030만원 절감)</strong></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 4. 전사 확산성 및 표준화 방안 -->
+    <div class="section-title">4. 전사 확산성 및 표준화 방안</div>
+    <table class="tbl-summary">
+        <tr>
+            <th>전사업소<br>확산 가능성</th>
+            <td class="editable-blue">
+                <ul class="summary-bullet-list">
+                    <li><strong>전사 건설/보수공사 현장 확대 적용</strong>: 건설사업소뿐만 아니라 발전본부 내 제반 공사·용역(발전소 오버홀, 설비 개선공사 등) 현장의 기성고 및 준공 정산 업무 전반으로 시스템 확산 가능.</li>
+                    <li><strong>유사 타 정산 업무 표준 확장</strong>: 안전관리비, 환경관리비, 노무비 구분관리제 증빙 등 타 경비 항목 정산 체계로 AI 검증 모듈 용이하게 파생 확장.</li>
+                </ul>
+            </td>
+        </tr>
+        <tr>
+            <th>표준 프로세스 수립<br>및 가이드라인 공유</th>
+            <td class="editable-blue">
+                <ul class="summary-bullet-list">
+                    <li><strong>AI 검증 표준 가이드라인 수립</strong>: PDF 증빙 문서 엑셀 추출 프롬프트 매뉴얼 및 원본 비교 산출 규칙을 표준화하여 전사 배포.</li>
+                    <li><strong>사내망 포트 개방 및 계정 보안 체계 구축</strong>: 사내망 웹서버 개방을 통해 전 직원이 별도 설치 없이 접속 이용. 사용자 비밀번호 관리 및 개인별 검증 이력 저장으로 보안성 증대.</li>
+                </ul>
+            </td>
+        </tr>
+    </table>
+
+    <div class="signature-container">
+        위와 같이 신규 제안서를 제출합니다.<br><br>
+        2026년 8월 7일, &nbsp;&nbsp;&nbsp;&nbsp; 신청자: 건설사업소 공사관리 담당자
+    </div>
+
+    <!-- 붙임 상세 내용 -->
+    <div class="attachment-section">
+        <div class="attachment-title">붙임 1. AI 활용 자원 절감 성과 산출 근거 및 증빙 상세서</div>
+        <div class="attachment-box">
+            <h4>1. 시간 및 인건비 절감 성과 산출 (연간 6,480만 원 절감)</h4>
+            <ul>
+                <li><strong>산출 기준</strong>: 건설사업소 관할 주요 공사 현장 10개소 (현장당 평균 작업자 800~1,000명, 연간 기성/준공 검사 총 36회 시행)</li>
+                <li><strong>기존 소요시간</strong>: 회당 40시간(5일) × 36회 = 1,440시간/년</li>
+                <li><strong>AI 도입 후 소요시간</strong>: 회당 4시간(0.5일) × 36회 = 144시간/년 (단축률 90%)</li>
+                <li><strong>절감 인건비</strong>: 1,296시간 절감 × 50,000원/시간(엔지니어 평균 시간당 단가) = <strong>64,800,000원/년 (6,480만 원/년)</strong></li>
+            </ul>
+
+            <h4>2. 4대 보험료 과다/이중 청구 및 누수 방지 효과 (연간 3,150만 원 절감)</h4>
+            <ul>
+                <li><strong>산출 기준</strong>: 1,000명 현장 기준 기성 청구 보험료 산정액 연간 약 30억 원 규모</li>
+                <li><strong>손실 예방 금액</strong>: 30억 원 × 1.05%(수작업 누수율) × 10개 현장 기성 비율 = <strong>31,500,000원/년 (3,150만 원/년)</strong></li>
+            </ul>
+
+            <h4>3. 행정 프로세스 간소화 및 외주/대리검증 대체 가치 (연간 2억 8,400만 원)</h4>
+            <ul>
+                <li><strong>대리 정산 검증 수수료 절감</strong>: 현장당 연간 대리 정산 검증 수수료 2,840만 원 × 10개 현장 = <strong>284,000,000원/년</strong></li>
+                <li><strong>총 정량적 기대효과</strong>: <strong>연간 총 380,300,000원 (약 3억 8,030만 원 절감 / 89.8% 절감 효과)</strong></li>
+            </ul>
+        </div>
+
+        <div class="attachment-title">붙임 2. Claude AI 기반 시스템 웹페이지 & 백엔드 기술 아키텍처</div>
+        <div class="attachment-box">
+            <h4>1. 기술 스택 (Tech Stack)</h4>
+            <ul>
+                <li><strong>AI Engine</strong>: Claude 3.5 Sonnet (Anthropic API - PDF Multi-modal Vision & Structured Extraction)</li>
+                <li><strong>Backend</strong>: Python FastAPI (REST API, pdfplumber, pandas, openpyxl, SQLite 계정/Audit Log DB)</li>
+                <li><strong>Frontend</strong>: Single Page Application (HTML5, Vanilla CSS, JS, Drag & Drop Upload, 실시간 대조 Grid)</li>
+                <li><strong>Network & Security</strong>: 사내망 내부 웹 포트(8080) 개방, 비밀번호 인증 계정 관리 및 개인별 검증 이력 저장</li>
+            </ul>
+
+            <h4>2. 핵심 기능 프로세스</h4>
+            <div class="code-block">
+[직원 웹 접속 / 로그인] ➔ [비밀번호 인증 & 세션 생성]
+  ➔ [PDF 증빙서류 & 원본 내역서 Drag & Drop 업로드]
+  ➔ [Backend: Claude AI API 호출 - PDF 데이터 구조화 추출]
+  ➔ [AI 데이터 -> 엑셀 XLSX 자동 변환 & Export]
+  ➔ [원본 내역서 vs AI 추출 데이터 1:1 자동 대조/검증]
+  ➔ [불일치/이상 항목 하이라이트 웹 화면 제공]
+  ➔ [검증 결과 엑셀 다운로드 & 이력 Audit Log DB 저장]
+            </div>
+        </div>
+    </div>
+
+</div>
+
+</body>
+</html>

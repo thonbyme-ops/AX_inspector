@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+*.pyc
+uploads/*
+!uploads/.gitkeep
+data/*.json
+sample/
+scratch_*
