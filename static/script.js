@@ -4,6 +4,17 @@ let currentMode = "summary";
 const MODE_LABELS = {
   summary: { a: "파일 A (예: 검사요청서)", b: "파일 B (예: 검사보고서)" },
   evidence: { a: "파일 A: 노무비 지급 내역서", b: "파일 B: 퇴직공제부금 납부 신고 내역" },
+  hrcost: { a: "파일 1: 보험료 납부_단위공사별", b: "파일 2: 퇴직공제부금 납부 신고 내역" },
+};
+const MODE_ENDPOINT = {
+  summary: "/api/compare",
+  evidence: "/api/compare_evidence",
+  hrcost: "/api/hr_cost/extract",
+};
+const MODE_BUTTON_LABEL = {
+  summary: "비교하기",
+  evidence: "비교하기",
+  hrcost: "추출하기",
 };
 
 function setupModeTabs() {
@@ -14,14 +25,18 @@ function setupModeTabs() {
       currentMode = btn.dataset.mode;
       document.getElementById("mode-summary-desc").hidden = currentMode !== "summary";
       document.getElementById("mode-evidence-desc").hidden = currentMode !== "evidence";
+      document.getElementById("mode-hrcost-desc").hidden = currentMode !== "hrcost";
+      document.getElementById("hrcost-hint").hidden = currentMode !== "hrcost";
       document.getElementById("dz-label-a").textContent = MODE_LABELS[currentMode].a;
       document.getElementById("dz-label-b").textContent = MODE_LABELS[currentMode].b;
-      document.getElementById("input-a").accept =
-        currentMode === "evidence" ? ".pdf" : ".pdf,.xlsx,.xlsm,.xls";
-      document.getElementById("input-b").accept =
-        currentMode === "evidence" ? ".pdf" : ".pdf,.xlsx,.xlsm,.xls";
+      const accept =
+        currentMode === "evidence" ? ".pdf" : currentMode === "hrcost" ? ".xlsx,.xlsm,.xls" : ".pdf,.xlsx,.xlsm,.xls";
+      document.getElementById("input-a").accept = accept;
+      document.getElementById("input-b").accept = accept;
+      document.getElementById("compare-btn").textContent = MODE_BUTTON_LABEL[currentMode];
       document.getElementById("result-container").innerHTML = "";
       setStatus("");
+      updateCompareButton();
     });
   });
 }
@@ -55,7 +70,8 @@ function setupDropzone(slot) {
 }
 
 function updateCompareButton() {
-  document.getElementById("compare-btn").disabled = !(files.a && files.b);
+  const ready = currentMode === "hrcost" ? !!(files.a || files.b) : !!(files.a && files.b);
+  document.getElementById("compare-btn").disabled = !ready;
 }
 
 function setStatus(msg, isError) {
@@ -69,10 +85,10 @@ async function runCompare() {
   document.getElementById("compare-btn").disabled = true;
 
   const form = new FormData();
-  form.append("file_a", files.a);
-  form.append("file_b", files.b);
+  if (files.a) form.append("file_a", files.a);
+  if (files.b) form.append("file_b", files.b);
 
-  const endpoint = currentMode === "evidence" ? "/api/compare_evidence" : "/api/compare";
+  const endpoint = MODE_ENDPOINT[currentMode];
   try {
     const res = await fetch(endpoint, { method: "POST", body: form });
     const data = await res.json();

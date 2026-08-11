@@ -1,13 +1,21 @@
+import io
 import json
 import os
 import time
 import uuid
 
-from flask import Flask, render_template, request, jsonify, abort
+from flask import Flask, render_template, request, jsonify, abort, send_file
 from werkzeug.utils import secure_filename
 
 from extractor import extract, row_definitions, COLUMNS
 from evidence_extractor import extract_labor_cost_rows, extract_retirement_fund_rows
+from hr_cost_extractor import (
+    extract_hr_costs,
+    aggregate_by_company,
+    aggregate_by_person,
+    aggregate_by_month,
+    build_export_workbook,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
@@ -26,6 +34,10 @@ app.config["MAX_FORM_MEMORY_SIZE"] = MAX_CONTENT_LENGTH
 # 진행 중인 비교 결과를 메모리에 잠시 보관 (검증 버튼 클릭 시 조회용)
 _COMPARISONS = {}
 
+# 이슈#2: 인건비(건강/연금/퇴직공제) 추출 결과를 내보내기 전까지 메모리에 보관
+_HR_COST_RESULTS = {}
+HR_COST_ALLOWED_EXT = {"xlsx", "xlsm", "xls"}
+
 META_LABELS = [
     ("project_name", "공사명"),
     ("contract_no", "계약번호"),
@@ -40,6 +52,10 @@ META_LABELS = [
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[-1].lower() in ALLOWED_EXT
+
+
+def allowed_hr_cost_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[-1].lower() in HR_COST_ALLOWED_EXT
 
 
 def save_upload(file_storage, slot):
@@ -209,6 +225,70 @@ def api_compare_evidence():
         max_pages=EVIDENCE_MAX_PAGES,
     )
     return jsonify({"html": html, "token": token})
+
+
+@app.route("/api/hr_cost/extract", methods=["POST"])
+def api_hr_cost_extract():
+    file_a = request.files.get("file_a")
+    file_b = request.files.get("file_b")
+    if not file_a and not file_b:
+        return jsonify({"error": "최소 한 개의 엑셀 파일을 업로드해주세요."}), 400
+
+    saved_paths = []
+    records = []
+    try:
+        for f in (file_a, file_b):
+            if not f or not f.filename:
+                continue
+            filename = secure_filename(f.filename)
+            if not filename or not allowed_hr_cost_file(filename):
+                raise ValueError(f"엑셀 파일(.xlsx/.xlsm/.xls)만 업로드할 수 있습니다: {f.filename}")
+            path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
+            f.save(path)
+            saved_paths.append(path)
+            records.extend(extract_hr_costs(path, filename))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"파일 처리 중 오류가 발생했습니다: {e}"}), 500
+    finally:
+        for p in saved_paths:
+            _safe_remove(p)
+
+    if not records:
+        return jsonify({"error": "추출된 데이터가 없습니다. 지원하는 양식인지 확인해주세요."}), 400
+
+    token = uuid.uuid4().hex
+    _HR_COST_RESULTS[token] = {"records": records, "created_at": time.time()}
+
+    html = render_template(
+        "_hr_cost_result.html",
+        token=token,
+        by_company=aggregate_by_company(records),
+        by_person=aggregate_by_person(records),
+        by_month=aggregate_by_month(records),
+        person_count=len({(r["company"], r["person"]) for r in records}),
+        company_count=len({r["company"] for r in records}),
+        record_count=len(records),
+    )
+    return jsonify({"html": html, "token": token})
+
+
+@app.route("/api/hr_cost/export/<token>")
+def api_hr_cost_export(token):
+    record = _HR_COST_RESULTS.get(token)
+    if not record:
+        abort(404, "추출 결과를 찾을 수 없습니다. 다시 업로드해주세요.")
+    wb = build_export_workbook(record["records"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name="인건비_추출결과.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @app.route("/api/verify", methods=["POST"])

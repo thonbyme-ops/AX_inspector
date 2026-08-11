@@ -1,0 +1,78 @@
+<div class="result hr-cost-result" data-token="{{ token }}">
+  <h2>인건비 데이터 추출 결과</h2>
+  <p class="ocr-warning">
+    ⚠ 업체명 표기가 문서마다 다를 수 있어(예: "㈜" vs "(주)", 공백 포함 여부) 자동으로 통일했지만,
+    문서 간 업체명 표기 방식 자체가 다른 경우 서로 다른 업체로 집계될 수 있습니다. 다운로드한 엑셀에서 확인해주세요.
+  </p>
+  <div class="evidence-summary">
+    추출된 레코드: {{ record_count }}건 · 업체 수: {{ company_count }} · 인원 수: {{ person_count }}
+  </div>
+
+  <div class="actions">
+    <a href="{{ url_for('api_hr_cost_export', token=token) }}"><button type="button">엑셀로 내보내기</button></a>
+  </div>
+
+  <h3>업체별 집계</h3>
+  <div class="table-scroll">
+    <table class="cmp-table hr-cost-table">
+      <thead>
+        <tr><th class="label-cell">업체명</th><th>건강보험료</th><th>연금보험료</th><th>퇴직공제부금</th><th>합계</th></tr>
+      </thead>
+      <tbody>
+        {% for row in by_company %}
+        <tr>
+          <td class="label-cell">{{ row.company }}</td>
+          <td>{{ '{:,}'.format(row.health) }}</td>
+          <td>{{ '{:,}'.format(row.pension) }}</td>
+          <td>{{ '{:,}'.format(row.retirement) }}</td>
+          <td>{{ '{:,}'.format(row.total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>월별 집계</h3>
+  <div class="table-scroll">
+    <table class="cmp-table hr-cost-table">
+      <thead>
+        <tr><th class="label-cell">연월</th><th>건강보험료</th><th>연금보험료</th><th>퇴직공제부금</th><th>합계</th></tr>
+      </thead>
+      <tbody>
+        {% for row in by_month %}
+        <tr>
+          <td class="label-cell">{{ row.year_month }}</td>
+          <td>{{ '{:,}'.format(row.health) }}</td>
+          <td>{{ '{:,}'.format(row.pension) }}</td>
+          <td>{{ '{:,}'.format(row.retirement) }}</td>
+          <td>{{ '{:,}'.format(row.total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>개인별 집계 (상위 200명)</h3>
+  <div class="table-scroll">
+    <table class="cmp-table hr-cost-table">
+      <thead>
+        <tr><th class="label-cell">업체명</th><th class="label-cell">성명</th><th>건강보험료</th><th>연금보험료</th><th>퇴직공제부금</th><th>합계</th></tr>
+      </thead>
+      <tbody>
+        {% for row in by_person[:200] %}
+        <tr>
+          <td class="label-cell">{{ row.company }}</td>
+          <td class="label-cell">{{ row.person }}</td>
+          <td>{{ '{:,}'.format(row.health) }}</td>
+          <td>{{ '{:,}'.format(row.pension) }}</td>
+          <td>{{ '{:,}'.format(row.retirement) }}</td>
+          <td>{{ '{:,}'.format(row.total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if by_person|length > 200 %}
+    <p class="ocr-warning">개인별 상세는 {{ by_person|length }}명 중 200명만 화면에 표시됩니다. 전체 내역은 엑셀 다운로드를 이용해주세요.</p>
+    {% endif %}
+  </div>
+</div>

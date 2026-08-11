@@ -230,6 +230,10 @@ tr.row-diff .label-cell { color: var(--diff-border); }
 .badge-review { background: #fde2e1; color: var(--diff-border); }
 .badge-correction { background: #ffd0d0; color: #a30000; }
 
+.hr-cost-result h3 { margin-top: 24px; margin-bottom: 8px; font-size: 14px; }
+.table-scroll { overflow-x: auto; margin-bottom: 8px; }
+.hr-cost-table { min-width: 480px; }
+
 @media (max-width: 900px) {
   .evidence-columns { grid-template-columns: 1fr; }
 }
