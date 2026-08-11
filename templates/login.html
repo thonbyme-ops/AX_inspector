@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>로그인 — 기성고 검사 데이터 비교 검증</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="page login-page">
+  <h1>로그인</h1>
+  <form class="login-form" method="post" action="{{ url_for('login') }}">
+    <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+    {% if error %}<p class="login-error">{{ error }}</p>{% endif %}
+    <label>아이디
+      <input type="text" name="username" autocomplete="username" required autofocus>
+    </label>
+    <label>비밀번호
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit">로그인</button>
+  </form>
+</div>
+</body>
+</html>

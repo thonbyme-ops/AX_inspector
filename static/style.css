@@ -26,6 +26,83 @@ body {
   padding: 32px 20px 80px;
 }
 
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.logout-link { color: var(--accent); text-decoration: none; }
+.logout-link:hover { text-decoration: underline; }
+
+.login-page {
+  max-width: 360px;
+  margin-top: 80px;
+}
+.login-form {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.login-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.login-form input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.login-error {
+  background: var(--diff-bg);
+  color: var(--diff-border);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.history-controls {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.history-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.history-controls select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  min-width: 160px;
+  font-family: inherit;
+}
+.history-controls select[multiple] { min-height: 120px; }
+#history-status-msg { font-size: 13px; color: var(--muted); }
+
+.history-month-block { margin-bottom: 12px; }
+.history-month-title { font-weight: 600; margin-bottom: 4px; }
+.history-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+
 h1 { font-size: 22px; margin-bottom: 4px; }
 .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 24px; }
 

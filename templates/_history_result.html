@@ -1,0 +1,49 @@
+<div class="result history-result">
+  <h2>이력 조회 — {{ company }}</h2>
+
+  {% if compare_rows %}
+  <h3>월별 구분 비교 (최신 저장값 기준)</h3>
+  <div class="table-scroll">
+    <table class="cmp-table hr-cost-table sortable-table" id="table-history-compare">
+      <thead>
+        <tr>
+          <th class="label-cell sortable" data-type="text">연월</th>
+          <th class="sortable" data-type="number">건강보험료</th>
+          <th class="sortable" data-type="number">연금보험료</th>
+          <th class="sortable" data-type="number">퇴직공제부금</th>
+          <th class="sortable" data-type="number">합계</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in compare_rows %}
+        <tr>
+          <td class="label-cell">{{ row.year_month }}</td>
+          <td>{{ '{:,}'.format(row.health) }}</td>
+          <td>{{ '{:,}'.format(row.pension) }}</td>
+          <td>{{ '{:,}'.format(row.retirement) }}</td>
+          <td>{{ '{:,}'.format(row.total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="ocr-warning">선택한 조건에 저장된 데이터가 없습니다.</p>
+  {% endif %}
+
+  <h3>업로드 이력 (감사용)</h3>
+  {% for ym, entries in history_by_month.items() %}
+  <div class="history-month-block">
+    <div class="history-month-title">{{ ym }}</div>
+    {% if entries %}
+    <ul class="history-list">
+      {% for e in entries %}
+      <li>{{ e.uploaded_at[:19].replace('T', ' ') }} · {{ e.filenames|join(', ') }} · 합계 {{ '{:,}'.format(e.total_amount) }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hint">저장된 이력이 없습니다.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>

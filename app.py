@@ -1,12 +1,15 @@
 import io
 import json
 import os
+import secrets
 import time
 import uuid
+from functools import wraps
 
-from flask import Flask, render_template, request, jsonify, abort, send_file
+from flask import Flask, render_template, request, jsonify, abort, send_file, session, redirect, url_for
 from werkzeug.utils import secure_filename
 
+import db
 from extractor import extract, row_definitions, COLUMNS
 from evidence_extractor import extract_labor_cost_rows, extract_retirement_fund_rows
 from hr_cost_extractor import (
@@ -15,6 +18,7 @@ from hr_cost_extractor import (
     aggregate_by_person,
     aggregate_by_month,
     build_export_workbook,
+    CATEGORY_ORDER,
 )
 from settlement_pdf_extractor import extract_settlement_pdf
 
@@ -22,15 +26,49 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 VERIFICATIONS_PATH = os.path.join(DATA_DIR, "verifications.json")
+SECRET_KEY_PATH = os.path.join(DATA_DIR, ".secret_key")
 ALLOWED_EXT = {"pdf", "xlsx", "xlsm", "xls"}
 MAX_CONTENT_LENGTH = 60 * 1024 * 1024
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 
+
+def _load_or_create_secret_key():
+    if os.path.exists(SECRET_KEY_PATH):
+        with open(SECRET_KEY_PATH, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    key = secrets.token_hex(32)
+    with open(SECRET_KEY_PATH, "w", encoding="utf-8") as f:
+        f.write(key)
+    return key
+
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["MAX_FORM_MEMORY_SIZE"] = MAX_CONTENT_LENGTH
+app.secret_key = _load_or_create_secret_key()
+db.init_db()
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "account_id" not in session:
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "로그인이 필요합니다."}), 401
+            return redirect(url_for("login", next=request.path))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def current_account():
+    return {
+        "id": session.get("account_id"),
+        "username": session.get("username"),
+        "display_name": session.get("display_name"),
+        "company": session.get("company"),
+    }
 
 # 진행 중인 비교 결과를 메모리에 잠시 보관 (검증 버튼 클릭 시 조회용)
 _COMPARISONS = {}
@@ -117,12 +155,39 @@ def build_comparison(result_a, result_b):
     }
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return render_template("login.html", error=None)
+
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    account = db.verify_login(username, password)
+    if not account:
+        return render_template("login.html", error="아이디 또는 비밀번호가 올바르지 않습니다."), 401
+
+    session["account_id"] = account["id"]
+    session["username"] = account["username"]
+    session["display_name"] = account["display_name"]
+    session["company"] = account["company"]
+    next_url = request.form.get("next") or request.args.get("next") or url_for("index")
+    return redirect(next_url)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/api/compare", methods=["POST"])
+@login_required
 def api_compare():
     file_a = request.files.get("file_a")
     file_b = request.files.get("file_b")
@@ -172,6 +237,7 @@ EVIDENCE_MAX_PAGES = 15
 
 
 @app.route("/api/compare_evidence", methods=["POST"])
+@login_required
 def api_compare_evidence():
     file_a = request.files.get("file_a")  # 노무비 지급 내역서
     file_b = request.files.get("file_b")  # 퇴직공제부금 납부 신고 내역
@@ -229,6 +295,7 @@ def api_compare_evidence():
 
 
 @app.route("/api/hr_cost/extract", methods=["POST"])
+@login_required
 def api_hr_cost_extract():
     file_a = request.files.get("file_a")
     file_b = request.files.get("file_b")
@@ -238,6 +305,7 @@ def api_hr_cost_extract():
     saved_paths = []
     records = []
     pdf_stats = []
+    filenames = []
     try:
         for f in (file_a, file_b):
             if not f or not f.filename:
@@ -245,6 +313,7 @@ def api_hr_cost_extract():
             filename = secure_filename(f.filename)
             if not filename or not allowed_hr_cost_file(filename):
                 raise ValueError(f"엑셀(.xlsx/.xlsm/.xls) 또는 PDF 파일만 업로드할 수 있습니다: {f.filename}")
+            filenames.append(filename)
             path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
             f.save(path)
             saved_paths.append(path)
@@ -267,7 +336,7 @@ def api_hr_cost_extract():
         return jsonify({"error": "추출된 데이터가 없습니다. 지원하는 양식인지 확인해주세요."}), 400
 
     token = uuid.uuid4().hex
-    _HR_COST_RESULTS[token] = {"records": records, "created_at": time.time()}
+    _HR_COST_RESULTS[token] = {"records": records, "filenames": filenames, "created_at": time.time()}
 
     html = render_template(
         "_hr_cost_result.html",
@@ -284,6 +353,7 @@ def api_hr_cost_extract():
 
 
 @app.route("/api/hr_cost/export/<token>")
+@login_required
 def api_hr_cost_export(token):
     record = _HR_COST_RESULTS.get(token)
     if not record:
@@ -300,7 +370,73 @@ def api_hr_cost_export(token):
     )
 
 
+@app.route("/api/hr_cost/save/<token>", methods=["POST"])
+@login_required
+def api_hr_cost_save(token):
+    record = _HR_COST_RESULTS.get(token)
+    if not record:
+        return jsonify({"error": "추출 결과를 찾을 수 없습니다. 다시 업로드해주세요."}), 404
+    try:
+        upload_id = db.save_upload(current_account(), record.get("filenames", []), record["records"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True, "upload_id": upload_id})
+
+
+@app.route("/api/history/companies")
+@login_required
+def api_history_companies():
+    return jsonify({"companies": db.list_companies(current_account())})
+
+
+@app.route("/api/history/months")
+@login_required
+def api_history_months():
+    company = request.args.get("company", "").strip()
+    if not company:
+        return jsonify({"error": "업체를 선택해주세요."}), 400
+    try:
+        months = db.list_year_months(current_account(), company)
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
+    return jsonify({"months": months})
+
+
+@app.route("/api/history/compare", methods=["POST"])
+@login_required
+def api_history_compare():
+    data = request.get_json(silent=True) or {}
+    company = (data.get("company") or "").strip()
+    months = [m for m in (data.get("months") or []) if m]
+    if not company or not months:
+        return jsonify({"error": "업체와 연월을 선택해주세요."}), 400
+
+    account = current_account()
+    try:
+        rows = db.get_latest_by_month(account, company, months)
+        history_by_month = {ym: db.get_upload_history(account, company, ym) for ym in months}
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
+
+    by_month = {}
+    for r in rows:
+        by_month.setdefault(r["year_month"], {c: 0 for c in CATEGORY_ORDER})[r["category"]] = r["amount"]
+    compare_rows = []
+    for ym in sorted(by_month):
+        cats = by_month[ym]
+        compare_rows.append({"year_month": ym, **cats, "total": sum(cats.values())})
+
+    html = render_template(
+        "_history_result.html",
+        company=company,
+        compare_rows=compare_rows,
+        history_by_month=history_by_month,
+    )
+    return jsonify({"html": html})
+
+
 @app.route("/api/verify", methods=["POST"])
+@login_required
 def api_verify():
     data = request.get_json(silent=True) or {}
     token = data.get("token")

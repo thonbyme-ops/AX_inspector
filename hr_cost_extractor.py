@@ -209,6 +209,21 @@ def aggregate_by_month(records):
     return result
 
 
+def aggregate_by_company_month(records):
+    """DB 저장용: 성명을 제외하고 (업체, 연월, 구분)별로 합산한 평평한 행 목록을 반환한다.
+    금액이 0인 구분은 행 자체를 만들지 않는다."""
+    totals = {}
+    for r in records:
+        key = (r["company"], r["year_month"] or "미상")
+        totals.setdefault(key, _empty_totals())[r["category"]] += r["amount"]
+    result = []
+    for (company, ym), cat_totals in sorted(totals.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
+        for cat in CATEGORY_ORDER:
+            if cat_totals[cat]:
+                result.append({"company": company, "year_month": ym, "category": cat, "amount": cat_totals[cat]})
+    return result
+
+
 def aggregate_detail(records):
     """(업체, 성명, 연월) 단위로 구분별 금액을 합쳐 상세표를 만든다."""
     totals = {}

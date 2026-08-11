@@ -8,6 +8,10 @@
 </head>
 <body>
 <div class="page">
+  <div class="topbar">
+    <span class="topbar-user">{{ session.get('display_name') or session.get('username') }}{% if session.get('company') %} · {{ session.get('company') }}{% endif %}</span>
+    <a class="logout-link" href="{{ url_for('logout') }}">로그아웃</a>
+  </div>
   <h1>기성고 검사 데이터 비교 검증</h1>
   <p class="subtitle">두 파일을 각각 드래그앤드롭하면 동일한 항목을 추출해 나란히 비교합니다.</p>
 
@@ -15,32 +19,49 @@
     <button class="mode-tab active" data-mode="summary">기성고 요약표 비교</button>
     <button class="mode-tab" data-mode="evidence">노무비 · 퇴직공제부금 대조</button>
     <button class="mode-tab" data-mode="hrcost">인건비 데이터 추출</button>
+    <button class="mode-tab" data-mode="history">이력 조회</button>
   </div>
 
   <div id="mode-summary-desc" class="mode-desc">기성고 검사요청서/보고서 등 항목별 요약표 2개를 비교합니다 (PDF 또는 Excel).</div>
   <div id="mode-evidence-desc" class="mode-desc" hidden>노무비 지급 내역서(A)와 퇴직공제부금 납부 신고 내역(B) 스캔 PDF를 대조합니다. 성명 등은 원본 이미지로, 금액은 자동 추출합니다.</div>
   <div id="mode-hrcost-desc" class="mode-desc" hidden>"보험료 납부_단위공사별"/"퇴직공제부금 납부 신고 내역" 엑셀 또는 실적정산 증빙 PDF(건강·장기요양/국민연금/퇴직공제)를 업로드하면 업체별·개인별·월별로 건강보험료·연금보험료·퇴직공제부금을 구분해서 집계하고 엑셀로 내보낼 수 있습니다. 둘 중 하나만 올려도 됩니다. ⚠ PDF는 스캔본 OCR이라 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다.</div>
+  <div id="mode-history-desc" class="mode-desc" hidden>"인건비 데이터 추출" 결과를 DB에 저장해두면, 여기서 업체와 연월을 골라 월별로 쌓인 데이터를 비교할 수 있습니다. 성명 등 개인정보는 저장되지 않고 업체·월·구분별 집계만 저장됩니다.</div>
 
-  <div class="dropzones">
-    <div class="dropzone" id="dropzone-a" data-slot="a">
-      <div class="dz-icon">📄</div>
-      <div class="dz-label" id="dz-label-a">파일 A (예: 검사요청서)</div>
-      <div class="dz-filename" id="filename-a">여기에 파일을 드래그하거나 클릭해서 선택</div>
-      <input type="file" id="input-a" accept=".pdf,.xlsx,.xlsm,.xls" hidden>
+  <div id="upload-section">
+    <div class="dropzones">
+      <div class="dropzone" id="dropzone-a" data-slot="a">
+        <div class="dz-icon">📄</div>
+        <div class="dz-label" id="dz-label-a">파일 A (예: 검사요청서)</div>
+        <div class="dz-filename" id="filename-a">여기에 파일을 드래그하거나 클릭해서 선택</div>
+        <input type="file" id="input-a" accept=".pdf,.xlsx,.xlsm,.xls" hidden>
+      </div>
+      <div class="dropzone" id="dropzone-b" data-slot="b">
+        <div class="dz-icon">📄</div>
+        <div class="dz-label" id="dz-label-b">파일 B (예: 검사보고서)</div>
+        <div class="dz-filename" id="filename-b">여기에 파일을 드래그하거나 클릭해서 선택</div>
+        <input type="file" id="input-b" accept=".pdf,.xlsx,.xlsm,.xls" hidden>
+      </div>
     </div>
-    <div class="dropzone" id="dropzone-b" data-slot="b">
-      <div class="dz-icon">📄</div>
-      <div class="dz-label" id="dz-label-b">파일 B (예: 검사보고서)</div>
-      <div class="dz-filename" id="filename-b">여기에 파일을 드래그하거나 클릭해서 선택</div>
-      <input type="file" id="input-b" accept=".pdf,.xlsx,.xlsm,.xls" hidden>
+
+    <div class="actions">
+      <button id="compare-btn" disabled>비교하기</button>
+      <span id="status-msg"></span>
     </div>
+    <p id="hrcost-hint" class="mode-desc" hidden>* 파일은 하나만 올려도 추출됩니다.</p>
   </div>
 
-  <div class="actions">
-    <button id="compare-btn" disabled>비교하기</button>
-    <span id="status-msg"></span>
+  <div id="history-panel" hidden>
+    <div class="history-controls">
+      <label>업체
+        <select id="history-company"><option value="">선택...</option></select>
+      </label>
+      <label>연월 (여러 개 선택 가능, Ctrl/Shift+클릭)
+        <select id="history-months" multiple size="6"></select>
+      </label>
+      <button id="history-compare-btn" disabled>조회</button>
+      <span id="history-status-msg"></span>
+    </div>
   </div>
-  <p id="hrcost-hint" class="mode-desc" hidden>* 파일은 하나만 올려도 추출됩니다.</p>
 
   <div id="result-container"></div>
 </div>

@@ -23,18 +23,26 @@ function setupModeTabs() {
       document.querySelectorAll(".mode-tab").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentMode = btn.dataset.mode;
-      document.getElementById("mode-summary-desc").hidden = currentMode !== "summary";
-      document.getElementById("mode-evidence-desc").hidden = currentMode !== "evidence";
-      document.getElementById("mode-hrcost-desc").hidden = currentMode !== "hrcost";
+      ["summary", "evidence", "hrcost", "history"].forEach((m) => {
+        document.getElementById(`mode-${m}-desc`).hidden = currentMode !== m;
+      });
       document.getElementById("hrcost-hint").hidden = currentMode !== "hrcost";
+      document.getElementById("upload-section").hidden = currentMode === "history";
+      document.getElementById("history-panel").hidden = currentMode !== "history";
+      document.getElementById("result-container").innerHTML = "";
+      setStatus("");
+
+      if (currentMode === "history") {
+        loadHistoryCompanies();
+        return;
+      }
+
       document.getElementById("dz-label-a").textContent = MODE_LABELS[currentMode].a;
       document.getElementById("dz-label-b").textContent = MODE_LABELS[currentMode].b;
       const accept = currentMode === "evidence" ? ".pdf" : ".pdf,.xlsx,.xlsm,.xls";
       document.getElementById("input-a").accept = accept;
       document.getElementById("input-b").accept = accept;
       document.getElementById("compare-btn").textContent = MODE_BUTTON_LABEL[currentMode];
-      document.getElementById("result-container").innerHTML = "";
-      setStatus("");
       updateCompareButton();
     });
   });
@@ -105,12 +113,129 @@ async function runCompare() {
     document.getElementById("result-container").innerHTML = data.html;
     setStatus("완료");
     attachVerifyHandlers();
+    attachHrCostSaveHandler();
     setupSortableTables();
     setupTableFilters();
   } catch (err) {
     setStatus("네트워크 오류가 발생했습니다.", true);
   } finally {
     updateCompareButton();
+  }
+}
+
+function attachHrCostSaveHandler() {
+  const resultEl = document.querySelector(".hr-cost-result");
+  const btn = document.getElementById("hr-cost-save-btn");
+  if (!resultEl || !btn) return;
+  const token = resultEl.dataset.token;
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const msgEl = document.getElementById("hr-cost-save-msg");
+    msgEl.textContent = "저장 중...";
+    msgEl.style.color = "";
+    try {
+      const res = await fetch(`/api/hr_cost/save/${token}`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        msgEl.textContent = data.error || "저장 중 오류가 발생했습니다.";
+        msgEl.style.color = "#b3261e";
+        btn.disabled = false;
+        return;
+      }
+      msgEl.textContent = "DB에 저장되었습니다.";
+      msgEl.style.color = "#2e9e56";
+    } catch (err) {
+      msgEl.textContent = "네트워크 오류가 발생했습니다.";
+      msgEl.style.color = "#b3261e";
+      btn.disabled = false;
+    }
+  });
+}
+
+function setHistoryStatus(msg, isError) {
+  const el = document.getElementById("history-status-msg");
+  el.textContent = msg;
+  el.style.color = isError ? "#b3261e" : "";
+}
+
+async function loadHistoryCompanies() {
+  const select = document.getElementById("history-company");
+  select.innerHTML = '<option value="">불러오는 중...</option>';
+  document.getElementById("history-months").innerHTML = "";
+  try {
+    const res = await fetch("/api/history/companies");
+    const data = await res.json();
+    select.innerHTML = '<option value="">선택...</option>';
+    (data.companies || []).forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      select.appendChild(opt);
+    });
+  } catch (err) {
+    select.innerHTML = '<option value="">불러오기 실패</option>';
+  }
+  updateHistoryCompareButton();
+}
+
+async function loadHistoryMonths(company) {
+  const monthsSelect = document.getElementById("history-months");
+  monthsSelect.innerHTML = "";
+  if (!company) {
+    updateHistoryCompareButton();
+    return;
+  }
+  try {
+    const res = await fetch(`/api/history/months?company=${encodeURIComponent(company)}`);
+    const data = await res.json();
+    (data.months || []).forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      monthsSelect.appendChild(opt);
+    });
+    if (!data.months || !data.months.length) {
+      setHistoryStatus("저장된 데이터가 없습니다.");
+    } else {
+      setHistoryStatus("");
+    }
+  } catch (err) {
+    setHistoryStatus("연월 목록을 불러오지 못했습니다.", true);
+  }
+  updateHistoryCompareButton();
+}
+
+function updateHistoryCompareButton() {
+  const company = document.getElementById("history-company").value;
+  const months = Array.from(document.getElementById("history-months").selectedOptions).map((o) => o.value);
+  document.getElementById("history-compare-btn").disabled = !(company && months.length);
+}
+
+async function runHistoryCompare() {
+  const company = document.getElementById("history-company").value;
+  const months = Array.from(document.getElementById("history-months").selectedOptions).map((o) => o.value);
+  setHistoryStatus("조회 중...");
+  document.getElementById("history-compare-btn").disabled = true;
+  try {
+    const res = await fetch("/api/history/compare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company, months }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setHistoryStatus(data.error || "조회 중 오류가 발생했습니다.", true);
+      return;
+    }
+    document.getElementById("result-container").innerHTML = data.html;
+    setHistoryStatus("완료");
+    setupSortableTables();
+    setupTableFilters();
+  } catch (err) {
+    setHistoryStatus("네트워크 오류가 발생했습니다.", true);
+  } finally {
+    updateHistoryCompareButton();
   }
 }
 
@@ -203,3 +328,6 @@ setupDropzone("a");
 setupDropzone("b");
 setupModeTabs();
 document.getElementById("compare-btn").addEventListener("click", runCompare);
+document.getElementById("history-company").addEventListener("change", (e) => loadHistoryMonths(e.target.value));
+document.getElementById("history-months").addEventListener("change", updateHistoryCompareButton);
+document.getElementById("history-compare-btn").addEventListener("click", runHistoryCompare);

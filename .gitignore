@@ -4,6 +4,8 @@ __pycache__/
 uploads/*
 !uploads/.gitkeep
 data/*.json
+data/*.db
+data/.secret_key
 sample/
 scratch_*
 plan/

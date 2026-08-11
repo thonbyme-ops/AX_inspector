@@ -21,6 +21,8 @@
 
   <div class="actions">
     <a href="{{ url_for('api_hr_cost_export', token=token) }}"><button type="button">엑셀로 내보내기</button></a>
+    <button type="button" id="hr-cost-save-btn">DB에 저장</button>
+    <span id="hr-cost-save-msg"></span>
   </div>
 
   <h3>업체별 구분 비교</h3>
