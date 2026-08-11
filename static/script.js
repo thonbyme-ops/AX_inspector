@@ -4,7 +4,7 @@ let currentMode = "summary";
 const MODE_LABELS = {
   summary: { a: "파일 A (예: 검사요청서)", b: "파일 B (예: 검사보고서)" },
   evidence: { a: "파일 A: 노무비 지급 내역서", b: "파일 B: 퇴직공제부금 납부 신고 내역" },
-  hrcost: { a: "파일 1: 보험료 납부_단위공사별", b: "파일 2: 퇴직공제부금 납부 신고 내역" },
+  hrcost: { a: "파일 1: 보험료 납부_단위공사별 (엑셀) 또는 실적정산 (PDF)", b: "파일 2: 퇴직공제부금 납부 신고 내역 (엑셀) 또는 실적정산 (PDF)" },
 };
 const MODE_ENDPOINT = {
   summary: "/api/compare",
@@ -29,8 +29,7 @@ function setupModeTabs() {
       document.getElementById("hrcost-hint").hidden = currentMode !== "hrcost";
       document.getElementById("dz-label-a").textContent = MODE_LABELS[currentMode].a;
       document.getElementById("dz-label-b").textContent = MODE_LABELS[currentMode].b;
-      const accept =
-        currentMode === "evidence" ? ".pdf" : currentMode === "hrcost" ? ".xlsx,.xlsm,.xls" : ".pdf,.xlsx,.xlsm,.xls";
+      const accept = currentMode === "evidence" ? ".pdf" : ".pdf,.xlsx,.xlsm,.xls";
       document.getElementById("input-a").accept = accept;
       document.getElementById("input-b").accept = accept;
       document.getElementById("compare-btn").textContent = MODE_BUTTON_LABEL[currentMode];
@@ -81,7 +80,13 @@ function setStatus(msg, isError) {
 }
 
 async function runCompare() {
-  setStatus("업로드 및 추출 중...");
+  const hasPdf = (files.a && files.a.name.toLowerCase().endsWith(".pdf")) ||
+    (files.b && files.b.name.toLowerCase().endsWith(".pdf"));
+  setStatus(
+    currentMode === "hrcost" && hasPdf
+      ? "업로드 및 OCR 추출 중... (PDF는 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다)"
+      : "업로드 및 추출 중..."
+  );
   document.getElementById("compare-btn").disabled = true;
 
   const form = new FormData();
@@ -100,6 +105,8 @@ async function runCompare() {
     document.getElementById("result-container").innerHTML = data.html;
     setStatus("완료");
     attachVerifyHandlers();
+    setupSortableTables();
+    setupTableFilters();
   } catch (err) {
     setStatus("네트워크 오류가 발생했습니다.", true);
   } finally {
@@ -140,6 +147,54 @@ function attachVerifyHandlers() {
         verifyResultEl.textContent = "네트워크 오류가 발생했습니다.";
         verifyResultEl.style.color = "#b3261e";
       }
+    });
+  });
+}
+
+function parseCellValue(text, type) {
+  if (type === "number") return parseFloat(text.replace(/,/g, "")) || 0;
+  return text.trim();
+}
+
+function setupSortableTables() {
+  document.querySelectorAll(".sortable-table").forEach((table) => {
+    const headers = table.querySelectorAll("thead th.sortable");
+    headers.forEach((th, colIndex) => {
+      th.addEventListener("click", () => {
+        const type = th.dataset.type || "text";
+        const asc = th.dataset.sortDir !== "asc";
+        headers.forEach((h) => {
+          h.classList.remove("sort-asc", "sort-desc");
+          delete h.dataset.sortDir;
+        });
+        th.dataset.sortDir = asc ? "asc" : "desc";
+        th.classList.add(asc ? "sort-asc" : "sort-desc");
+
+        const tbody = table.querySelector("tbody");
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        rows.sort((r1, r2) => {
+          const v1 = parseCellValue(r1.children[colIndex].textContent, type);
+          const v2 = parseCellValue(r2.children[colIndex].textContent, type);
+          if (v1 < v2) return asc ? -1 : 1;
+          if (v1 > v2) return asc ? 1 : -1;
+          return 0;
+        });
+        rows.forEach((row) => tbody.appendChild(row));
+      });
+    });
+  });
+}
+
+function setupTableFilters() {
+  document.querySelectorAll(".table-filter").forEach((input) => {
+    input.addEventListener("input", () => {
+      const table = document.getElementById(input.dataset.target);
+      if (!table) return;
+      const query = input.value.trim().toLowerCase();
+      table.querySelectorAll("tbody tr").forEach((row) => {
+        const text = row.textContent.toLowerCase();
+        row.hidden = query.length > 0 && !text.includes(query);
+      });
     });
   });
 }

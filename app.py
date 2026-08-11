@@ -16,6 +16,7 @@ from hr_cost_extractor import (
     aggregate_by_month,
     build_export_workbook,
 )
+from settlement_pdf_extractor import extract_settlement_pdf
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
@@ -36,7 +37,7 @@ _COMPARISONS = {}
 
 # 이슈#2: 인건비(건강/연금/퇴직공제) 추출 결과를 내보내기 전까지 메모리에 보관
 _HR_COST_RESULTS = {}
-HR_COST_ALLOWED_EXT = {"xlsx", "xlsm", "xls"}
+HR_COST_ALLOWED_EXT = {"xlsx", "xlsm", "xls", "pdf"}
 
 META_LABELS = [
     ("project_name", "공사명"),
@@ -236,17 +237,24 @@ def api_hr_cost_extract():
 
     saved_paths = []
     records = []
+    pdf_stats = []
     try:
         for f in (file_a, file_b):
             if not f or not f.filename:
                 continue
             filename = secure_filename(f.filename)
             if not filename or not allowed_hr_cost_file(filename):
-                raise ValueError(f"엑셀 파일(.xlsx/.xlsm/.xls)만 업로드할 수 있습니다: {f.filename}")
+                raise ValueError(f"엑셀(.xlsx/.xlsm/.xls) 또는 PDF 파일만 업로드할 수 있습니다: {f.filename}")
             path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
             f.save(path)
             saved_paths.append(path)
-            records.extend(extract_hr_costs(path, filename))
+            ext = filename.lower().rsplit(".", 1)[-1]
+            if ext == "pdf":
+                pdf_records, stats = extract_settlement_pdf(path, filename)
+                records.extend(pdf_records)
+                pdf_stats.append({"filename": filename, **stats})
+            else:
+                records.extend(extract_hr_costs(path, filename))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -270,6 +278,7 @@ def api_hr_cost_extract():
         person_count=len({(r["company"], r["person"]) for r in records}),
         company_count=len({r["company"] for r in records}),
         record_count=len(records),
+        pdf_stats=pdf_stats,
     )
     return jsonify({"html": html, "token": token})
 
@@ -336,4 +345,6 @@ def _safe_remove(path):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000, use_reloader=False)
+    # PDF OCR 추출은 페이지 수에 따라 수십 분 이상 걸릴 수 있어, threaded=True로
+    # 그 동안 다른 요청(홈페이지 등)까지 완전히 멈추지 않게 한다.
+    app.run(debug=True, port=5000, use_reloader=False, threaded=True)

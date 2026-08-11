@@ -231,8 +231,30 @@ tr.row-diff .label-cell { color: var(--diff-border); }
 .badge-correction { background: #ffd0d0; color: #a30000; }
 
 .hr-cost-result h3 { margin-top: 24px; margin-bottom: 8px; font-size: 14px; }
+.hr-cost-result .hint { font-style: italic; }
 .table-scroll { overflow-x: auto; margin-bottom: 8px; }
+.table-scroll-tall { max-height: 560px; overflow-y: auto; }
 .hr-cost-table { min-width: 480px; }
+.hr-cost-table tbody tr:nth-child(even) { background: #fafbfc; }
+.hr-cost-table thead th { position: sticky; top: 0; z-index: 1; }
+.hr-cost-table .cell-zero { color: var(--muted); }
+
+.table-filter {
+  display: block;
+  margin: 8px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  width: 240px;
+  max-width: 100%;
+}
+
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { background: #e4e8ef; }
+th.sortable::after { content: "⇅"; opacity: 0.35; margin-left: 4px; font-size: 10px; }
+th.sortable.sort-asc::after { content: "▲"; opacity: 1; }
+th.sortable.sort-desc::after { content: "▼"; opacity: 1; }
 
 @media (max-width: 900px) {
   .evidence-columns { grid-template-columns: 1fr; }
