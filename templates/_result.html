@@ -7,6 +7,9 @@
   {% if comparison.source_a == 'ocr' or comparison.source_b == 'ocr' %}
   <p class="ocr-warning">⚠ 스캔 이미지 PDF는 OCR로 값을 추출했습니다. 인식 오차가 있을 수 있으니 원본과 대조 후 검증해주세요.</p>
   {% endif %}
+  {% if comparison.unread_ocr_count > 0 %}
+  <p class="ocr-warning">⚠ OCR로 숫자를 인식하지 못한 셀이 {{ comparison.unread_ocr_count }}개 있습니다 (아래 "인식불가" 표시). 값이 0이거나 없는 것이 아니라 인식에 실패한 것이니, 반드시 원본 문서를 직접 확인해주세요.</p>
+  {% endif %}
 
   <h3>기본 정보</h3>
   <table class="cmp-table meta-table">
@@ -45,8 +48,20 @@
         <td class="label-cell">{{ row.label }}{% if row.is_key_field %} <span class="badge badge-key">핵심항목</span>{% endif %}</td>
         {% for col in ['계약금액','전회누계','기성율','금회누계금액','금회지급액','비고'] %}
           {% set c = row.cols[col] %}
-          <td class="{{ 'cell-diff' if c.diff else '' }} {{ 'cell-missing' if row.missing_a else '' }}">{{ c.a if c.a is not none else ('' if row.missing_a else '-') }}</td>
-          <td class="{{ 'cell-diff' if c.diff else '' }} {{ 'cell-missing' if row.missing_b else '' }}">{{ c.b if c.b is not none else ('' if row.missing_b else '-') }}</td>
+          <td class="{{ 'cell-diff' if c.diff else '' }} {{ 'cell-missing' if row.missing_a else '' }} {{ 'cell-unread' if c.unread_a else '' }}">
+            {%- if c.unread_a -%}
+              <span class="badge badge-review" title="OCR로 이 값을 인식하지 못했습니다. 원본을 확인해주세요.">인식불가</span>
+            {%- else -%}
+              {{ c.a if c.a is not none else ('' if row.missing_a else '-') }}
+            {%- endif -%}
+          </td>
+          <td class="{{ 'cell-diff' if c.diff else '' }} {{ 'cell-missing' if row.missing_b else '' }} {{ 'cell-unread' if c.unread_b else '' }}">
+            {%- if c.unread_b -%}
+              <span class="badge badge-review" title="OCR로 이 값을 인식하지 못했습니다. 원본을 확인해주세요.">인식불가</span>
+            {%- else -%}
+              {{ c.b if c.b is not none else ('' if row.missing_b else '-') }}
+            {%- endif -%}
+          </td>
         {% endfor %}
       </tr>
       {% endfor %}

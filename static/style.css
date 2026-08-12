@@ -160,6 +160,23 @@ h1 { font-size: 22px; margin-bottom: 4px; }
   gap: 12px;
 }
 
+.category-filter {
+  margin: 4px 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.category-filter label { font-size: 13px; color: var(--muted); }
+.category-filter select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.cat-col.cat-hidden { display: none; }
+
 button {
   font-family: inherit;
   font-size: 14px;
@@ -225,6 +242,7 @@ tr.row-diff .label-cell { color: var(--diff-border); }
   font-weight: 700;
 }
 .cell-missing { background: #f3f4f6; color: var(--muted); }
+.cell-unread { background: #fde2e1; }
 
 .meta-table tr.diff td { background: var(--diff-bg); color: var(--diff-border); font-weight: 700; }
 

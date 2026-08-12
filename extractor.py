@@ -6,6 +6,7 @@ pdfplumber로 그대로 추출하고, 스캔 이미지라 텍스트가 없으면
 OCR(Tesseract)로 대체한다.
 """
 import io
+import os
 import re
 import shutil
 
@@ -14,7 +15,11 @@ import pymupdf
 import pytesseract
 from openpyxl import load_workbook
 
-TESSERACT_CMD = shutil.which("tesseract") or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+TESSERACT_CMD = (
+    os.environ.get("TESSERACT_CMD")
+    or shutil.which("tesseract")
+    or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+)
 pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
 COLUMNS = ["계약금액", "전회누계", "기성율", "금회누계금액", "금회지급액", "비고"]
@@ -54,14 +59,14 @@ GROUP_MARKERS = [
 ]
 
 META_PATTERNS = {
-    "calc_period": r"기성고\s*산정기간\D*([\d.\s]+~[\d.\s]+)",
-    "project_name": r"공\s*사\s*명\s*[:：]\s*(.+?)(?:계\s*약\s*번\s*호|$)",
+    "calc_period": r"기성고\s*산정기간\D*([\d.\t ]+~[\d.\t ]+)",
+    "project_name": r"공\s*사\s*명\s*[:：]\s*([^\n]+?)(?:계\s*약\s*번\s*호|$)",
     "contract_no": r"계\s*약\s*번\s*호\s*[:：]\s*(\S+)",
-    "project_period": r"공사기간\s*[:：]\s*([\d.\s]+~[\d.\s]+)",
-    "supply_amount": r"공\s*급\s*가\s*액\s*[:：]\s*([\d,\s]+)",
-    "contract_date": r"계\s*약\s*일\s*[:：]\s*([\d.\s]+)",
-    "vat": r"부\s*가\s*세\s*[:：]\s*([\d,\s]+)",
-    "contractor": r"계\s*약\s*자\s*[:：]\s*(.+?)(?:합\s*계|$)",
+    "project_period": r"공사기간\s*[:：]\s*([\d.\t ]+~[\d.\t ]+)",
+    "supply_amount": r"공\s*급\s*가\s*액\s*[:：]\s*([\d,\t ]+)",
+    "contract_date": r"계\s*약\s*일\s*[:：]\s*([\d.\t ]+)",
+    "vat": r"부\s*가\s*세\s*[:：]\s*([\d,\t ]+)",
+    "contractor": r"계\s*약\s*자\s*[:：]\s*([^\n]+?)(?:합\s*계|$)",
 }
 
 

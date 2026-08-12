@@ -6,8 +6,11 @@ import time
 import uuid
 from functools import wraps
 
+from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, abort, send_file, session, redirect, url_for
 from werkzeug.utils import secure_filename
+
+load_dotenv()
 
 import db
 from extractor import extract, row_definitions, COLUMNS
@@ -35,6 +38,9 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def _load_or_create_secret_key():
+    env_key = os.environ.get("FLASK_SECRET_KEY")
+    if env_key:
+        return env_key
     if os.path.exists(SECRET_KEY_PATH):
         with open(SECRET_KEY_PATH, "r", encoding="utf-8") as f:
             return f.read().strip()
@@ -109,6 +115,7 @@ def save_upload(file_storage, slot):
 
 def build_comparison(result_a, result_b):
     rows = []
+    unread_ocr_count = 0
     for key, label, _keyword, is_key_field in row_definitions():
         item_a = result_a["items"].get(key, {})
         item_b = result_b["items"].get(key, {})
@@ -122,7 +129,15 @@ def build_comparison(result_a, result_b):
             is_diff = present_a and present_b and val_a != val_b
             if is_diff:
                 row_has_diff = True
-            cols[col] = {"a": val_a, "b": val_b, "diff": is_diff}
+            # 경비 항목 등 실제 값이 0/빈칸일 수 있어, OCR로 열 자체를 읽지 못한
+            # 경우(행은 인식했지만 숫자를 못 찾음)를 '값 없음'과 구분해 보여준다.
+            unread_a = present_a and col != "비고" and val_a is None and result_a["source"] == "ocr"
+            unread_b = present_b and col != "비고" and val_b is None and result_b["source"] == "ocr"
+            if unread_a:
+                unread_ocr_count += 1
+            if unread_b:
+                unread_ocr_count += 1
+            cols[col] = {"a": val_a, "b": val_b, "diff": is_diff, "unread_a": unread_a, "unread_b": unread_b}
         rows.append(
             {
                 "key": key,
@@ -152,6 +167,7 @@ def build_comparison(result_a, result_b):
         "any_diff": any_diff,
         "source_a": result_a["source"],
         "source_b": result_b["source"],
+        "unread_ocr_count": unread_ocr_count,
     }
 
 

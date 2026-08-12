@@ -116,6 +116,7 @@ async function runCompare() {
     attachHrCostSaveHandler();
     setupSortableTables();
     setupTableFilters();
+    setupHrCostCategoryFilter();
   } catch (err) {
     setStatus("네트워크 오류가 발생했습니다.", true);
   } finally {
@@ -308,6 +309,30 @@ function setupSortableTables() {
       });
     });
   });
+}
+
+function setupHrCostCategoryFilter() {
+  const select = document.getElementById("hr-cost-category-select");
+  if (!select) return;
+
+  const applyFilter = () => {
+    const selected = new Set(Array.from(select.selectedOptions).map((o) => o.value));
+
+    document.querySelectorAll(".hr-cost-table .cat-col").forEach((cell) => {
+      cell.classList.toggle("cat-hidden", !selected.has(cell.dataset.cat));
+    });
+
+    document.querySelectorAll(".hr-cost-table .sum-cell").forEach((cell) => {
+      let sum = 0;
+      selected.forEach((cat) => {
+        sum += parseInt(cell.dataset[cat] || "0", 10) || 0;
+      });
+      cell.textContent = sum.toLocaleString("en-US");
+    });
+  };
+
+  select.addEventListener("change", applyFilter);
+  applyFilter();
 }
 
 function setupTableFilters() {
