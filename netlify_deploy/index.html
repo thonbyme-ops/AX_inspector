@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>기성고 검사 데이터 비교 검증</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;900&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
+<link rel="stylesheet" href="style_mastt.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <h1>공주 천연가스 발전소</h1>
+      <p>산업 제어 및 검증 시스템</p>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#dashboard-top" class="sidebar-nav-item active">
+        <span class="material-symbols-outlined">dashboard</span>
+        <span>대시보드</span>
+      </a>
+      <a href="#recent-history" class="sidebar-nav-item">
+        <span class="material-symbols-outlined">history</span>
+        <span>검증 이력</span>
+      </a>
+      <a href="#hrcost-section" class="sidebar-nav-item">
+        <span class="material-symbols-outlined">payments</span>
+        <span>인건비 데이터</span>
+      </a>
+    </nav>
+    <div class="sidebar-account">
+      <div class="sidebar-account-name">관리자</div>
+      <a class="logout-link" href="#">로그아웃</a>
+    </div>
+  </aside>
+
+  <div class="main-area">
+    <header class="topbar">
+      <h2>검증 관리 시스템</h2>
+    </header>
+
+    <main class="content" id="dashboard-top">
+      <div class="dashboard-header">
+        <div>
+          <h2>기성 검증 대시보드</h2>
+          <p class="subtitle">업로드한 서류에서 필요한 항목을 추출해 비교·검증합니다.</p>
+        </div>
+        <div class="dashboard-header-actions">
+          <div class="header-action">
+            <button type="button" id="open-compare-modal-btn" title="검사요청서·검사보고서 또는 노무비·퇴직공제부금 서류를 서로 비교해 값이 일치하는지 검증합니다.">
+              <span class="material-symbols-outlined">add</span>
+              신규 검증 등록
+            </button>
+            <p class="header-action-caption">검사요청서·검사보고서, 노무비·퇴직공제부금 서류를 <strong>비교·검증</strong></p>
+          </div>
+          <div class="header-action">
+            <button type="button" id="open-hrcost-modal-btn" class="btn-secondary" title="보험료 납부내역·퇴직공제부금 신고내역 또는 실적정산 증빙 PDF에서 건강·연금·퇴직공제 데이터를 추출해 집계합니다.">
+              <span class="material-symbols-outlined">payments</span>
+              인건비 데이터 추출
+            </button>
+            <p class="header-action-caption">보험료·퇴직공제 서류에서 인건비 데이터를 <strong>추출·집계</strong></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="stat-cards">
+        <div class="stat-card stat-card-total">
+          <span class="stat-label">전체 검증 건수</span>
+          <span class="stat-value">2<span class="stat-unit">건</span></span>
+        </div>
+        <div class="stat-card stat-card-match">
+          <span class="stat-label">일치</span>
+          <span class="stat-value">1<span class="stat-unit">건</span></span>
+        </div>
+        <div class="stat-card stat-card-mismatch">
+          <span class="stat-label">불일치</span>
+          <span class="stat-value">1<span class="stat-unit">건</span></span>
+        </div>
+        <div class="stat-card stat-card-info">
+          <span class="stat-label">최근 검증일시</span>
+          <span class="stat-value stat-value-sm">2026-08-12 11:20</span>
+        </div>
+      </div>
+
+      <div class="recent-table-card" id="recent-history">
+        <div class="recent-table-card-header">
+          <h3>최근 검증 이력</h3>
+        </div>
+        <div class="table-scroll">
+          <table class="cmp-table recent-table">
+            <thead>
+              <tr>
+                <th>검증일시</th>
+                <th>파일 A</th>
+                <th>파일 B</th>
+                <th>검증자</th>
+                <th>검증상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="label-cell">2026-08-12 11:20</td>
+                <td class="label-cell">06-03._20_.pdf</td>
+                <td class="label-cell">2026.05.26.xlsx</td>
+                <td class="label-cell">강현미</td>
+                <td><span class="status-badge status-mismatch">불일치</span></td>
+              </tr>
+              <tr>
+                <td class="label-cell">2026-08-12 08:27</td>
+                <td class="label-cell">06-03._20_.pdf</td>
+                <td class="label-cell">2026_04_.pdf</td>
+                <td class="label-cell">강현미</td>
+                <td><span class="status-badge status-match">일치</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="recent-table-card" id="hrcost-section">
+        <div class="recent-table-card-header">
+          <h3>인건비 데이터 관리</h3>
+        </div>
+        <p class="mode-desc">"보험료 납부_단위공사별"/"퇴직공제부금 납부 신고 내역" 엑셀 또는 실적정산 증빙 PDF(건강·장기요양/국민연금/퇴직공제)를 업로드하면 업체별·개인별·월별로 건강보험료·연금보험료·퇴직공제부금을 구분해서 집계하고, 결과 화면에서 바로 과거 달과 비교하거나 엑셀로 내보낼 수 있습니다. 둘 중 하나만 올려도 됩니다. ⚠ PDF는 스캔본 OCR이라 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다.</p>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-overlay" id="verify-modal" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">신규 기성 검증 및 서류 업로드</h2>
+        <button type="button" class="modal-close-btn" id="modal-close-btn" aria-label="닫기">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div id="mode-compare-desc" class="mode-desc">아래에서 어떤 서류를 비교할지 선택하세요.</div>
+        <div id="mode-hrcost-desc" class="mode-desc" hidden>"보험료 납부_단위공사별"/"퇴직공제부금 납부 신고 내역" 엑셀 또는 실적정산 증빙 PDF(건강·장기요양/국민연금/퇴직공제)를 업로드하면 업체별·개인별·월별로 건강보험료·연금보험료·퇴직공제부금을 구분해서 집계하고, 결과 화면에서 바로 과거 달과 비교하거나 엑셀로 내보낼 수 있습니다. 둘 중 하나만 올려도 됩니다. ⚠ PDF는 스캔본 OCR이라 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다.</div>
+
+        <section class="modal-step">
+          <div class="modal-step-header">
+            <span class="step-badge">1</span>
+            <h3>서류 업로드</h3>
+          </div>
+          <div class="modal-step-body">
+            <div id="compare-submode-section">
+              <div class="submode-cards">
+                <button class="submode-card active" data-submode="summary">
+                  <div class="submode-title">기성고 요약표 비교</div>
+                  <div class="submode-hint">이번 기성고 검사요청서와 검사보고서(재료비·노무비·경비 등 금액 항목표)를 나란히 비교하고 싶을 때 (PDF 또는 Excel)</div>
+                </button>
+                <button class="submode-card" data-submode="evidence">
+                  <div class="submode-title">노무비 · 퇴직공제부금 대조</div>
+                  <div class="submode-hint">노무비 지급 내역서와 퇴직공제부금 납부 신고 내역을 인원별로 맞춰보고 싶을 때 (스캔 PDF, 성명은 원본 이미지로 확인)</div>
+                </button>
+              </div>
+            </div>
+
+            <div id="upload-section">
+              <div class="dropzones">
+                <div class="dropzone" id="dropzone-a" data-slot="a">
+                  <span class="material-symbols-outlined dz-icon">upload_file</span>
+                  <div class="dz-label" id="dz-label-a">파일 A (예: 검사요청서)</div>
+                  <div class="dz-filename" id="filename-a">여기에 파일을 드래그하거나 클릭해서 선택</div>
+                  <input type="file" id="input-a" accept=".pdf,.xlsx,.xlsm,.xls" hidden>
+                </div>
+                <div class="dropzone" id="dropzone-b" data-slot="b">
+                  <span class="material-symbols-outlined dz-icon">upload_file</span>
+                  <div class="dz-label" id="dz-label-b">파일 B (예: 검사보고서)</div>
+                  <div class="dz-filename" id="filename-b">여기에 파일을 드래그하거나 클릭해서 선택</div>
+                  <input type="file" id="input-b" accept=".pdf,.xlsx,.xlsm,.xls" hidden>
+                </div>
+              </div>
+
+              <div class="actions">
+                <button id="compare-btn" disabled>비교하기</button>
+                <span id="status-msg"></span>
+              </div>
+              <p id="hrcost-hint" class="mode-desc" hidden>* 파일은 하나만 올려도 추출됩니다.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="modal-step">
+          <div class="modal-step-header">
+            <span class="step-badge">2</span>
+            <h3>결과</h3>
+          </div>
+          <div class="modal-step-body">
+            <div id="result-container"></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn-text" id="modal-cancel-btn">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
