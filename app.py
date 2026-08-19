@@ -1,14 +1,15 @@
 import io
 import json
 import os
+import re
 import secrets
 import time
 import uuid
+from datetime import datetime
 from functools import wraps
 
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, abort, send_file, session, redirect, url_for
-from werkzeug.utils import secure_filename
 
 load_dotenv()
 
@@ -103,8 +104,21 @@ def allowed_hr_cost_file(filename):
     return "." in filename and filename.rsplit(".", 1)[-1].lower() in HR_COST_ALLOWED_EXT
 
 
+def safe_original_filename(filename):
+    """경로 조작·제어문자만 제거하고 한글 등 비-ASCII 문자는 그대로 보존한다.
+
+    werkzeug의 secure_filename()은 한글을 통째로 지워버려서, PDF 문서 종류를
+    파일명의 한글 키워드(건강/연금/퇴직 등)로 판별하는 로직이 항상 실패하는
+    문제가 있었다 (예: "06-05. 제20회 기성 실적정산(퇴직공제).pdf" -> "06-05._20_.pdf").
+    """
+    name = os.path.basename((filename or "").replace("\\", "/"))
+    name = name.replace("\x00", "")
+    name = re.sub(r'[<>:"/\\|?*\r\n\t]', "_", name)
+    return name.strip(" .")
+
+
 def save_upload(file_storage, slot):
-    filename = secure_filename(file_storage.filename)
+    filename = safe_original_filename(file_storage.filename)
     if not filename or not allowed_file(filename):
         raise ValueError(f"허용되지 않는 파일 형식입니다: {file_storage.filename}")
     unique_name = f"{uuid.uuid4().hex}_{slot}_{filename}"
@@ -196,10 +210,26 @@ def logout():
     return redirect(url_for("login"))
 
 
+def _load_verifications():
+    if not os.path.exists(VERIFICATIONS_PATH):
+        return []
+    with open(VERIFICATIONS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html")
+    verifications = _load_verifications()
+    stats = {
+        "total": len(verifications),
+        "match_count": sum(1 for v in verifications if v.get("decision") == "yes"),
+        "mismatch_count": sum(1 for v in verifications if v.get("decision") == "no"),
+    }
+    recent = sorted(verifications, key=lambda v: v.get("verified_at", 0), reverse=True)[:10]
+    for v in recent:
+        v["verified_at_display"] = datetime.fromtimestamp(v["verified_at"]).strftime("%Y-%m-%d %H:%M")
+    return render_template("index.html", stats=stats, recent=recent)
 
 
 @app.route("/api/compare", methods=["POST"])
@@ -326,7 +356,7 @@ def api_hr_cost_extract():
         for f in (file_a, file_b):
             if not f or not f.filename:
                 continue
-            filename = secure_filename(f.filename)
+            filename = safe_original_filename(f.filename)
             if not filename or not allowed_hr_cost_file(filename):
                 raise ValueError(f"엑셀(.xlsx/.xlsm/.xls) 또는 PDF 파일만 업로드할 수 있습니다: {f.filename}")
             filenames.append(filename)

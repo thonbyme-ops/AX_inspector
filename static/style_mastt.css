@@ -1,24 +1,30 @@
 :root {
-  --primary: #041627;
-  --primary-container: #1a2b3c;
-  --on-primary-container: #b7c8de;
-  --secondary: #436180;
-  --tertiary: #0f766e;
-  --tertiary-bg: #ccfbf1;
+  --primary: #14213d;
+  --primary-container: #0d1830;
+  --on-primary-container: #b9c2d0;
+  --secondary: #1ea7e0;
+  --tertiary: #3fa65b;
+  --tertiary-bg: #e5f5e9;
   --amber: #d97706;
   --amber-bg: #fef3c7;
 
-  --bg: #f8f9ff;
+  --kpi-orange: #f5891c;
+  --kpi-blue: #1ea7e0;
+  --kpi-navy: #14213d;
+  --kpi-red: #ef5b5b;
+  --kpi-green: #3fa65b;
+
+  --bg: #f4f5f7;
   --card: #ffffff;
-  --card-alt: #eff4ff;
-  --border: #d3e4fe;
-  --border-strong: #c4c6cd;
-  --text: #0b1c30;
-  --muted: #44474c;
+  --card-alt: #f4f5f7;
+  --border: #e0e0e0;
+  --border-strong: #c9cdd2;
+  --text: #1b2a41;
+  --muted: #6b7280;
 
   --accent: var(--primary);
-  --diff-bg: #ffdad6;
-  --diff-border: #ba1a1a;
+  --diff-bg: #fdeceb;
+  --diff-border: #d6393f;
   --match-bg: var(--tertiary-bg);
   --match-border: var(--tertiary);
 
@@ -165,9 +171,20 @@ h1, h2, h3, h4 { font-family: var(--font-display); }
 }
 .dashboard-header h2 { font-size: 22px; margin: 0 0 4px; }
 .subtitle { color: var(--muted); margin: 0; font-size: 14px; }
-.dashboard-header-actions { display: flex; gap: var(--sp-sm); }
+.dashboard-header-actions { display: flex; gap: var(--sp-lg); align-items: flex-start; }
+.header-action { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.header-action-caption {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  max-width: 260px;
+  line-height: 1.4;
+  word-break: keep-all;
+}
+.header-action-caption strong { color: var(--text); }
 
-/* ---------- Stat cards ---------- */
+/* ---------- Stat cards (bold flat KPI tiles) ---------- */
 
 .stat-cards {
   display: grid;
@@ -176,31 +193,35 @@ h1, h2, h3, h4 { font-family: var(--font-display); }
   margin-bottom: var(--sp-xl);
 }
 .stat-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  background: var(--kpi-navy);
+  border: none;
+  border-radius: var(--radius-sm);
   padding: var(--sp-lg);
   display: flex;
   flex-direction: column;
   gap: var(--sp-sm);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 .stat-label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  text-transform: uppercase;
+  letter-spacing: 0;
+  color: rgba(255,255,255,0.92);
+  text-transform: none;
 }
 .stat-value {
   font-family: var(--font-display);
-  font-size: 32px;
-  font-weight: 700;
+  font-size: 40px;
+  font-weight: 800;
+  color: #ffffff;
 }
-.stat-value-sm { font-size: 16px; font-family: var(--font-mono); }
-.stat-unit { font-size: 13px; color: var(--muted); margin-left: 4px; font-family: var(--font-body); }
-.stat-card-match .stat-value { color: var(--tertiary); }
-.stat-card-mismatch .stat-value { color: var(--diff-border); }
+.stat-value-sm { font-size: 20px; font-family: var(--font-mono); }
+.stat-unit { font-size: 14px; color: rgba(255,255,255,0.85); margin-left: 4px; font-family: var(--font-body); }
+
+.stat-card-total { background: var(--kpi-orange); }
+.stat-card-match { background: var(--kpi-green); }
+.stat-card-mismatch { background: var(--kpi-red); }
+.stat-card-info { background: var(--kpi-navy); }
 
 /* ---------- Recent table card ---------- */
 
@@ -231,7 +252,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(4, 22, 39, 0.4);
+  background: rgba(20, 33, 61, 0.4);
   backdrop-filter: blur(2px);
   z-index: 50;
   display: flex;
@@ -330,7 +351,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); }
   color: var(--secondary);
   border: 2px solid var(--secondary);
 }
-.btn-secondary:hover { background: rgba(67, 97, 128, 0.08); }
+.btn-secondary:hover { background: rgba(30, 167, 224, 0.1); }
 
 /* ---------- Shared page elements ---------- */
 
@@ -430,7 +451,7 @@ h1 { font-size: 22px; margin-bottom: 4px; }
   font-family: inherit;
 }
 .submode-card.active {
-  border-color: var(--primary);
+  border-color: var(--secondary);
   border-width: 2px;
   background: var(--card-alt);
 }
@@ -458,8 +479,8 @@ h1 { font-size: 22px; margin-bottom: 4px; }
   cursor: pointer;
   transition: border-color .15s, background .15s;
 }
-.dropzone:hover { border-color: var(--tertiary); background: var(--card); }
-.dropzone.dragover { border-color: var(--tertiary); background: var(--tertiary-bg); }
+.dropzone:hover { border-color: var(--secondary); background: var(--card); }
+.dropzone.dragover { border-color: var(--secondary); background: #e8f6fc; }
 .dropzone.has-file { border-style: solid; border-color: var(--match-border); }
 
 .dz-icon { font-size: 32px; color: var(--secondary); }
@@ -548,7 +569,7 @@ button:disabled { background: #b7c3d6; cursor: not-allowed; }
   padding: 6px 8px;
   text-align: right;
 }
-.cmp-table th { background: var(--primary); color: #ffffff; text-align: center; font-weight: 700; }
+.cmp-table th { background: #eef0f3; color: var(--text); text-align: center; font-weight: 700; }
 .cmp-table .label-cell, .meta-table td:first-child { text-align: left; white-space: nowrap; }
 .cmp-table tbody tr:nth-child(even) { background: var(--card-alt); }
 
@@ -594,9 +615,9 @@ tr.row-diff .label-cell { color: var(--diff-border); }
 }
 .verify-buttons { display: flex; gap: 12px; }
 .verify-yes { background: var(--tertiary); }
-.verify-yes:hover { background: #0d5f58; }
+.verify-yes:hover { background: #2f8a49; }
 .verify-no { background: var(--diff-border); }
-.verify-no:hover { background: #93000a; }
+.verify-no:hover { background: #b32e33; }
 #verify-result { margin-top: 12px; font-weight: 600; }
 
 .evidence-columns {
@@ -667,7 +688,7 @@ tr.row-diff .label-cell { color: var(--diff-border); }
 }
 
 th.sortable { cursor: pointer; user-select: none; }
-th.sortable:hover { background: var(--primary-container); }
+th.sortable:hover { background: #e2e5ea; }
 th.sortable::after { content: "⇅"; opacity: 0.6; margin-left: 4px; font-size: 10px; }
 th.sortable.sort-asc::after { content: "▲"; opacity: 1; }
 th.sortable.sort-desc::after { content: "▼"; opacity: 1; }

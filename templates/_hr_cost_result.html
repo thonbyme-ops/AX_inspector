@@ -1,4 +1,4 @@
-<div class="result hr-cost-result" data-token="{{ token }}">
+<div class="result hr-cost-result" data-token="{{ token }}" data-companies='{{ by_company|map(attribute="company")|list|tojson }}'>
   <h2>인건비 데이터 추출 결과</h2>
   <p class="ocr-warning">
     ⚠ 업체명 표기가 문서마다 다를 수 있어(예: "㈜" vs "(주)", 공백 포함 여부) 자동으로 통일했지만,
@@ -114,5 +114,24 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <div class="history-section">
+    <h3>과거 데이터와 비교</h3>
+    <p class="mode-desc">
+      이 결과를 "DB에 저장" 해두면, 여기서 업체와 연월을 골라 과거 달에 저장된 값과 비교할 수 있습니다.
+      성명 등 개인정보는 저장되지 않고 업체·월·구분별 집계만 저장됩니다.
+    </p>
+    <div class="history-controls">
+      <label>업체
+        <select class="history-company"><option value="">선택...</option></select>
+      </label>
+      <label>연월 (여러 개 선택 가능, Ctrl/Shift+클릭)
+        <select class="history-months" multiple size="6" disabled></select>
+      </label>
+      <button type="button" class="history-compare-btn" disabled>조회</button>
+      <span class="history-status-msg"></span>
+    </div>
+    <div class="history-output"></div>
   </div>
 </div>
