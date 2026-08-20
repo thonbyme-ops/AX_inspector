@@ -28,7 +28,7 @@
       </a>
       <a href="#hrcost-section" class="sidebar-nav-item">
         <span class="material-symbols-outlined">payments</span>
-        <span>인건비 데이터</span>
+        <span>데이터 추출</span>
       </a>
     </nav>
     <div class="sidebar-account">
@@ -58,11 +58,11 @@
             <p class="header-action-caption">검사요청서·검사보고서, 노무비·퇴직공제부금 서류를 <strong>비교·검증</strong></p>
           </div>
           <div class="header-action">
-            <button type="button" id="open-hrcost-modal-btn" class="btn-secondary" title="보험료 납부내역·퇴직공제부금 신고내역 또는 실적정산 증빙 PDF에서 건강·연금·퇴직공제 데이터를 추출해 집계합니다.">
+            <button type="button" id="open-hrcost-modal-btn" class="btn-secondary" title="보험료 납부내역·퇴직공제부금 신고내역 또는 공단 발급 PDF(건강·장기요양/국민연금/퇴직공제)에서 추출 가능한 데이터를 모두 추출해 집계합니다.">
               <span class="material-symbols-outlined">payments</span>
-              인건비 데이터 추출
+              데이터 추출
             </button>
-            <p class="header-action-caption">보험료·퇴직공제 서류에서 인건비 데이터를 <strong>추출·집계</strong></p>
+            <p class="header-action-caption">보험료·퇴직공제 서류에서 인당 데이터를 <strong>추출·집계</strong></p>
           </div>
         </div>
       </div>
@@ -128,9 +128,9 @@
 
       <div class="recent-table-card" id="hrcost-section">
         <div class="recent-table-card-header">
-          <h3>인건비 데이터 관리</h3>
+          <h3>데이터 추출 관리</h3>
         </div>
-        <p class="mode-desc">"보험료 납부_단위공사별"/"퇴직공제부금 납부 신고 내역" 엑셀 또는 실적정산 증빙 PDF(건강·장기요양/국민연금/퇴직공제)를 업로드하면 업체별·개인별·월별로 건강보험료·연금보험료·퇴직공제부금을 구분해서 집계하고, 결과 화면에서 바로 과거 달과 비교하거나 엑셀로 내보낼 수 있습니다. 둘 중 하나만 올려도 됩니다. ⚠ PDF는 스캔본 OCR이라 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다.</p>
+        <p class="mode-desc">"보험료 납부_단위공사별"/"퇴직공제부금 납부 신고 내역" 엑셀 또는 공단이 발급하는 보험료·퇴직공제 PDF(건강·장기요양/국민연금/퇴직공제, 업체마다 서식이 달라도 자동 판별)를 업로드하면 업체별·개인별·월별로 건강보험료·연금보험료·퇴직공제부금을 구분해서 집계하고, 결과 화면에서 바로 과거 달과 비교하거나 엑셀로 내보낼 수 있습니다. 둘 중 하나만 올려도 됩니다. ⚠ 텍스트 PDF는 빠르게 처리되지만, 스캔본은 OCR이 필요해 페이지 수에 따라 수 분 이상 걸릴 수 있습니다.</p>
       </div>
     </main>
   </div>
@@ -146,7 +146,7 @@
 
       <div class="modal-body">
         <div id="mode-compare-desc" class="mode-desc">아래에서 어떤 서류를 비교할지 선택하세요.</div>
-        <div id="mode-hrcost-desc" class="mode-desc" hidden>"보험료 납부_단위공사별"/"퇴직공제부금 납부 신고 내역" 엑셀 또는 실적정산 증빙 PDF(건강·장기요양/국민연금/퇴직공제)를 업로드하면 업체별·개인별·월별로 건강보험료·연금보험료·퇴직공제부금을 구분해서 집계하고, 결과 화면에서 바로 과거 달과 비교하거나 엑셀로 내보낼 수 있습니다. 둘 중 하나만 올려도 됩니다. ⚠ PDF는 스캔본 OCR이라 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다.</div>
+        <div id="mode-hrcost-desc" class="mode-desc" hidden>"보험료 납부_단위공사별"/"퇴직공제부금 납부 신고 내역" 엑셀 또는 공단이 발급하는 보험료·퇴직공제 PDF(건강·장기요양/국민연금/퇴직공제, 업체마다 서식이 달라도 자동 판별)를 업로드하면 업체별·개인별·월별로 건강보험료·연금보험료·퇴직공제부금을 구분해서 집계하고, 결과 화면에서 바로 과거 달과 비교하거나 엑셀로 내보낼 수 있습니다. 둘 중 하나만 올려도 됩니다. ⚠ 텍스트 PDF는 빠르게 처리되지만, 스캔본은 OCR이 필요해 페이지 수에 따라 수 분 이상 걸릴 수 있습니다.</div>
 
         <section class="modal-step">
           <div class="modal-step-header">

@@ -33,6 +33,7 @@ import re
 import shutil
 
 import numpy as np
+import pdfplumber
 import pymupdf
 import pytesseract
 from PIL import Image
@@ -67,6 +68,50 @@ def _render_page(doc, page_index, dpi=RENDER_DPI):
     page = doc[page_index]
     pix = page.get_pixmap(dpi=dpi)
     return Image.open(io.BytesIO(pix.tobytes("png")))
+
+
+# ---------------------------------------------------------------------------
+# 네이티브 텍스트 레이어 우선 사용 (공단이 직접 발급하는 "납부확인서"류는
+# 회사마다 서식이 다르지만 대부분 텍스트 PDF라서, OCR보다 빠르고 정확하다.
+# 텍스트 레이어가 없는(스캔) 페이지만 기존 OCR 경로로 넘어간다.)
+# ---------------------------------------------------------------------------
+
+NOISE_FONTS = {"Helvetica", "Times-Roman", "Courier", "Symbol", "ZapfDingbats"}
+
+
+def _is_real_content_char(obj):
+    """네이티브 PDF에 겹쳐 삽입된 중복/워터마크용 폰트를 걸러낸다 (NOTES.md 참고).
+    스캔본에는 절대 적용하면 안 되지만, 이 함수는 네이티브 텍스트가 있을 때만 호출된다."""
+    if obj.get("object_type") != "char":
+        return True
+    fontname = obj.get("fontname", "")
+    if "Hidden" in fontname:
+        return False
+    return fontname not in NOISE_FONTS
+
+
+def _detect_needs_noise_filter(page):
+    hidden = other_embedded = total = 0
+    for c in page.chars:
+        total += 1
+        fontname = c.get("fontname", "")
+        if "Hidden" in fontname:
+            hidden += 1
+        elif "+" in fontname:
+            other_embedded += 1
+    if total == 0 or hidden == 0:
+        return False
+    return (other_embedded / total) > 0.10
+
+
+def _native_page_text(page):
+    """네이티브 텍스트 레이어가 있으면 텍스트를 반환하고, 스캔 이미지뿐이면 None을
+    반환해 호출부가 OCR로 넘어가게 한다."""
+    if not page.chars:
+        return None
+    source = page.filter(_is_real_content_char) if _detect_needs_noise_filter(page) else page
+    text = source.extract_text() or ""
+    return text if text.strip() else None
 
 
 def _cluster(values, gap=ROW_CLUSTER_GAP):
@@ -150,19 +195,49 @@ def _company_from_header(header_text):
 
 NON_PERSON_LINE_RE = re.compile(r"^(계|구\s*분|순\s*번|성\s*명)")
 
+CATEGORY_TARGET_LABEL = {
+    "health": "건강보험료",
+    "pension": "연금보험료",
+    "retirement": "퇴직공제부금",
+}
+# 표 헤더에 등장하는 금액류 컬럼 라벨(생년월일 같은 날짜 컬럼은 AMOUNT_RE에 안 걸리므로
+# 목록에 넣지 않아도 된다). 국민연금 서식은 "기준소득월액"이 "연금보험료" 앞에 오는
+# 컬럼이 있어(실측: 신보 사례), 그냥 줄의 첫 번째 금액을 집는 방식으로는 엉뚱한
+# 값을 뽑는다 -- 헤더 텍스트에서 타깃 라벨이 몇 번째 금액 컬럼인지 찾아서 대응한다.
+_AMOUNT_LABEL_RE = re.compile(r"[가-힣]*(?:보험료|부담금|기여금|월액|공제금|연체금)")
 
-def _parse_person_lines(text):
-    """OCR된 표 본문에서 (성명 or None, 첫 번째 금액) 목록을 뽑는다.
-    금액이 없는 줄(빈 칸/헤더/합계 줄)은 자연히 제외된다."""
+
+def _amount_index_from_header(text, category):
+    """이 페이지의 표 헤더 줄에서 타깃 항목(예: 연금보험료)이 금액류 라벨 중
+    몇 번째인지 찾는다. 헤더를 못 찾으면 0(첫 금액)을 그대로 쓴다 -- 건강보험료
+    등 첫 금액이 이미 타깃인 서식이 더 많다."""
+    target = CATEGORY_TARGET_LABEL.get(category)
+    if not target:
+        return 0
+    for line in text.splitlines():
+        norm = re.sub(r"\s+", "", line)
+        if "순번" not in norm or "성명" not in norm:
+            continue
+        labels = _AMOUNT_LABEL_RE.findall(norm)
+        if target in labels:
+            return labels.index(target)
+    return None
+
+
+def _parse_person_lines(text, amount_index=0):
+    """OCR/네이티브 텍스트로 뽑은 표 본문에서 (성명 or None, 금액) 목록을 뽑는다.
+    금액이 없는 줄(빈 칸/헤더/합계 줄)은 자연히 제외된다. amount_index는 한 줄에
+    금액이 여러 개일 때(예: 기준소득월액/연금보험료/근로자기여금/사용자부담금) 몇
+    번째 것을 취할지를 정한다 (_amount_index_from_header 참고)."""
     results = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or NON_PERSON_LINE_RE.match(stripped):
             continue
         amounts = AMOUNT_RE.findall(line)
-        if not amounts:
+        if len(amounts) <= amount_index:
             continue
-        amount = clean_amount(amounts[0])
+        amount = clean_amount(amounts[amount_index])
         if amount is None:
             continue
         names = NAME_RE.findall(line)
@@ -186,49 +261,73 @@ def _drop_trailing_total_row(rows, tolerance=0.01):
 def extract_premium_settlement(pdf_path, category, max_pages=None):
     """category: "health" 또는 "pension". 반환은 hr_cost_extractor와 동일한 레코드 스키마.
 
-    한 페이지에 6명짜리 회사도, 40명짜리 회사도 있어(회사 규모 편차가 큼) 행을
-    직접 잘라 OCR하면 표 내부 격자선 밝기가 일정하지 않아 행 경계 검출이
-    흔들린다. 대신 페이지 전체를 한 번에 OCR(--psm 4)하면 Tesseract 자체
-    줄 분리가 6명이든 40명이든 실사용에 충분히 정확해(검증됨), 훨씬 빠르고
-    안정적이다.
+    회사마다 서식이 다르다(예: "개인별 납부확인서", "결정내역서", "가입자명부" 등
+    제목이 제각각이라 특정 문구로 표 페이지를 판별할 수 없다). 그래서 특정
+    타이틀 문구 대신 "년월을 찾을 수 있고, 이 현장 하도급사 명단(KNOWN_COMPANY_CORES)
+    중 하나가 매칭되고, 이름+금액 조합이 최소 1건 이상 뽑히는가"로 표 페이지
+    여부를 일반적으로 판별한다.
+
+    문서 종류에 따라 회사명/연월이 문서 첫 페이지에만 있고 이후 페이지는 표만
+    이어지는 경우가 있다(실측: 국민연금 "결정내역서" 계열). 그래서 현재 페이지
+    에서 못 찾으면 직전에 성공한 값을 이어받는다 -- 단 이름+금액 조합이 실제로
+    뽑히는 페이지에서만(완전히 무관한 페이지까지 이어받지 않도록).
+
+    네이티브 텍스트 PDF는 OCR 없이 바로 읽고(숨은/중복 폰트는 자동 필터링),
+    텍스트 레이어가 없는 스캔 페이지만 페이지 전체 OCR(--psm 4)로 넘어간다.
+    한 페이지에 6명짜리 회사도 40명짜리 회사도 있어(격자선 밝기 편차 큼) 행을
+    직접 잘라 OCR하는 대신 페이지 전체를 한 번에 OCR하면 Tesseract 자체 줄
+    분리가 인원 수와 무관하게 실사용에 충분히 정확하다(검증됨).
     """
-    doc = pymupdf.open(pdf_path)
-    n_pages = len(doc) if max_pages is None else min(len(doc), max_pages)
+    fitz_doc = None  # 스캔 페이지가 나올 때만 지연 오픈 (OCR 렌더링용)
     records = []
     skipped_pages = 0
     processed_pages = 0
+    last_company = None
+    last_year_month = None
+    last_amount_index = 0
 
-    for i in range(n_pages):
+    with pdfplumber.open(pdf_path) as pdf:
+        n_pages = len(pdf.pages) if max_pages is None else min(len(pdf.pages), max_pages)
         try:
-            img = _render_page(doc, i)
-            text = pytesseract.image_to_string(img, lang="kor+eng", config="--psm 4")
-            if "납부내역서" not in re.sub(r"\s+", "", text):
-                skipped_pages += 1
-                continue
-            year_month = _year_month_from_text(text)
-            company = _company_from_header(text)
-            if not year_month or not company:
-                skipped_pages += 1
-                continue
-            processed_pages += 1
+            for i in range(n_pages):
+                try:
+                    text = _native_page_text(pdf.pages[i])
+                    if text is None:
+                        if fitz_doc is None:
+                            fitz_doc = pymupdf.open(pdf_path)
+                        img = _render_page(fitz_doc, i)
+                        text = pytesseract.image_to_string(img, lang="kor+eng", config="--psm 4")
 
-            page_rows = _parse_person_lines(text)
-            page_rows = _drop_trailing_total_row(page_rows)
-            for idx, (name, amount) in enumerate(page_rows):
-                records.append(
-                    {
-                        "company": company,
-                        "person": name or f"확인필요_{i}_{idx}",
-                        "year_month": year_month,
-                        "category": category,
-                        "amount": amount,
-                    }
-                )
-        except Exception:
-            skipped_pages += 1
-            continue
+                    year_month = _year_month_from_text(text) or last_year_month
+                    company = _company_from_header(text) or last_company
+                    amount_index = _amount_index_from_header(text, category)
+                    if amount_index is None:
+                        amount_index = last_amount_index
+                    page_rows = _parse_person_lines(text, amount_index) if (year_month and company) else []
+                    if not year_month or not company or not page_rows:
+                        skipped_pages += 1
+                        continue
+                    processed_pages += 1
+                    last_company, last_year_month, last_amount_index = company, year_month, amount_index
 
-    doc.close()
+                    page_rows = _drop_trailing_total_row(page_rows)
+                    for idx, (name, amount) in enumerate(page_rows):
+                        records.append(
+                            {
+                                "company": company,
+                                "person": name or f"확인필요_{i}_{idx}",
+                                "year_month": year_month,
+                                "category": category,
+                                "amount": amount,
+                            }
+                        )
+                except Exception:
+                    skipped_pages += 1
+                    continue
+        finally:
+            if fitz_doc is not None:
+                fitz_doc.close()
+
     return records, {"processed_pages": processed_pages, "skipped_pages": skipped_pages, "total_pages": n_pages}
 
 
@@ -291,8 +390,33 @@ def extract_retirement_settlement(pdf_path, max_pages=None):
     return records, {"processed_pages": processed_pages, "skipped_pages": skipped_pages, "total_pages": n_pages}
 
 
+def _detect_category_from_content(path, max_pages=2):
+    """파일명에 건강/연금/퇴직 힌트가 없을 때(예: "공주현장 26.03월 개인별 납부내역.pdf")
+    첫 몇 페이지 본문에서 문서 종류를 판별한다. 네이티브 텍스트가 있으면 그걸
+    쓰고, 없으면 첫 페이지만 OCR로 확인한다(전체 OCR은 느리므로 판별에는 1페이지면 충분)."""
+    with pdfplumber.open(path) as pdf:
+        for i, page in enumerate(pdf.pages[:max_pages]):
+            text = _native_page_text(page)
+            if text is None:
+                doc = pymupdf.open(path)
+                try:
+                    img = _render_page(doc, i)
+                    text = pytesseract.image_to_string(img, lang="kor+eng", config="--psm 4")
+                finally:
+                    doc.close()
+            norm = re.sub(r"\s+", "", text)
+            if "퇴직공제" in norm:
+                return "retirement"
+            if "연금보험료" in norm or "국민연금" in norm:
+                return "pension"
+            if "건강" in norm and ("장기요양" in norm or "요양보험" in norm):
+                return "health"
+    return None
+
+
 def extract_settlement_pdf(path, filename):
-    """파일명 힌트로 어떤 실적정산 PDF인지 판별해서 추출한다."""
+    """파일명 힌트로 어떤 실적정산 PDF인지 판별해서 추출한다. 힌트가 없으면
+    본문 내용으로 판별한다(예: 업체 자체 양식이라 파일명에 문서 종류가 안 적힌 경우)."""
     name = filename or ""
     if "건강" in name:
         return extract_premium_settlement(path, "health")
@@ -300,7 +424,13 @@ def extract_settlement_pdf(path, filename):
         return extract_premium_settlement(path, "pension")
     if "퇴직" in name:
         return extract_retirement_settlement(path)
+
+    category = _detect_category_from_content(path)
+    if category == "retirement":
+        return extract_retirement_settlement(path)
+    if category:
+        return extract_premium_settlement(path, category)
     raise ValueError(
-        f"파일명으로 문서 종류를 판별할 수 없습니다: {filename} "
-        "(파일명에 '건강', '연금', '퇴직' 중 하나가 포함되어야 합니다.)"
+        f"파일명/본문으로 문서 종류를 판별할 수 없습니다: {filename} "
+        "(건강·연금·퇴직공제 관련 문서인지 확인해주세요.)"
     )

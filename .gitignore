@@ -8,5 +8,6 @@ data/*.json
 data/*.db
 data/.secret_key
 sample/
+test/
 scratch_*
 plan/

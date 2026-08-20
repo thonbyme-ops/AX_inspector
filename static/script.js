@@ -44,7 +44,7 @@ function setTopMode(topTab) {
 function openModal(topTab) {
   const modal = document.getElementById("verify-modal");
   const title = document.getElementById("modal-title");
-  title.textContent = topTab === "hrcost" ? "인건비 데이터 추출" : "신규 기성 검증 및 서류 업로드";
+  title.textContent = topTab === "hrcost" ? "데이터 추출" : "신규 기성 검증 및 서류 업로드";
   setTopMode(topTab);
   modal.hidden = false;
 }

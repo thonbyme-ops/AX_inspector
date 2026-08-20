@@ -411,7 +411,7 @@ def api_hr_cost_export(token):
     return send_file(
         buf,
         as_attachment=True,
-        download_name="인건비_추출결과.xlsx",
+        download_name="데이터_추출결과.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
