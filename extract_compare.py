@@ -8,7 +8,14 @@
 실행:
     python extract_compare.py --doc-type health --sheet-filter 대아
     python extract_compare.py --doc-type pension --pdf "대아이앤씨 국민연금 납부확인서 26.04.pdf"
+    python extract_compare.py --doc-type retirement       # 스캔본 OCR 전용, retirement_ocr.py로 위임
     python extract_compare.py --doc-type all              # 문서 종류 전부 순서대로 처리 + 결과 합침
+
+퇴직공제부금(retirement)은 이 파일의 공용 엔진(DOCUMENT_TYPES)에 안 들어있다
+-- 유일한 증빙 PDF가 텍스트 레이어 없는 순수 스캔본이고 표 구조도 완전히
+달라서(자세한 내용은 retirement_ocr.py 모듈 docstring, NOTES.md "퇴직공제부금
+OCR 파이프라인 완성" 절 참고) 별도 OCR 모듈로 분리했다. run()에서 doc_type이
+"retirement"일 때만 그쪽으로 위임한다.
 
 숨은 폰트 필터링에 대해 (NOTES.md 참고, 2026-08-14 발견):
 같은 "Hidden" 계열 폰트라도 문서 종류에 따라 정반대 의미다 -- 스캔본(Acrobat
@@ -32,10 +39,17 @@ import statistics
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pdfplumber
+import pytesseract
 from openpyxl import load_workbook
+from PIL import Image
+from pytesseract import Output
 
+from retirement_ocr import _detect_lines as _ocr_detect_grid_lines
+
+import retirement_ocr
 from extract_compare_v2 import (
     _find_header_idx,
     _find_single_file,
@@ -115,6 +129,71 @@ def _detect_needs_noise_filter(pdf, sample_pages=3):
 
 
 # ---------------------------------------------------------------------------
+# 공통: 텍스트 레이어 없는 스캔본 페이지의 OCR 폴백
+# ---------------------------------------------------------------------------
+#
+# 회사마다 같은 "건강·장기요양보험료 보험료 납부확인서" 서식인데도 일부(실측:
+# 신한ACT, 광영건설, 지크아이디)는 공단 EDI 사이트에서 스캔/재출력된 이미지
+# PDF로 제출돼 텍스트 레이어가 없다(전 페이지 chars=0). 좌표 기반 컬럼
+# 배치(HEALTH_CONFIG/PENSION_CONFIG의 column_x_ranges)는 네이티브 PDF와
+# 스캔본이 시각적으로 동일한 서식이면 그대로 재사용할 수 있으므로, 이 두
+# 함수는 pdfplumber의 `page.extract_text()`/`page.extract_words()`를
+# "글자가 없을 때만" OCR 결과로 대체해 나머지 파이프라인(_group_target_pages,
+# _extract_group_records, _cluster_lines, _words_in_box 등)은 이 페이지가
+# 네이티브인지 스캔본인지 몰라도 되게 한다 -- 새 회사별 파서를 또 만들 필요가
+# 없다.
+#
+# 금액 오독 안전망: 이 방식은 OCR 숫자를 그대로 믿는다(퇴직공제처럼 컬럼별
+# 배치 OCR로 자릿수를 다듬지 않음). 대신 HEALTH_CONFIG에 이미 있던
+# `amount_consistency_pairs`(고지 x2 == 납부) 내부 일관성 체크가 원래
+# "Acrobat OCR 스캔본의 자릿수 누락"을 잡으려고 만들어진 안전망이라(NOTES.md
+# 참고), 이 폴백에서 생기는 오독도 같은 메커니즘으로 needs_review에 걸린다.
+def _ocr_page_text(page, dpi=150):
+    im = page.to_image(resolution=dpi).original
+    return pytesseract.image_to_string(im, lang="kor+eng", config="--psm 6")
+
+
+def _ocr_month_header_text(page, dpi=300):
+    """스캔본의 "OOOO년 OO월 건강·장기요양보험료 납부내역" 제목 줄은 페이지
+    전체를 한 번에 OCR하면 유독 이 줄만 깨진다(실측: 광영건설 -- "2026년
+    04월"이 "20264 048"로 읽힘, 낮은/높은 dpi 둘 다 동일). 반면 그 줄만 잘라
+    다시 OCR하면 정확히 읽힌다(실측 확인) -- 전체 페이지 레이아웃(위쪽의
+    큼직한 로고/체크박스 제목과의 폰트 크기 차이) 때문에 tesseract가 이 줄의
+    글자 높이를 헷갈리는 것으로 보인다. "내역"이라는 단어의 좌표를 먼저 찾아
+    그 줄 주변만 잘라 재시도한다."""
+    im = page.to_image(resolution=dpi).original
+    data = pytesseract.image_to_data(im, lang="kor+eng", config="--psm 6", output_type=Output.DICT)
+    anchor_top = None
+    for i, raw in enumerate(data["text"]):
+        if raw.strip() in ("내역", "납부내역") and data["top"][i] < im.height * 0.4:
+            anchor_top = data["top"][i]
+            break
+    if anchor_top is None:
+        return ""
+    band = im.crop((0, max(0, anchor_top - 40), im.width, anchor_top + 40))
+    return pytesseract.image_to_string(band, lang="kor+eng", config="--psm 6")
+
+
+def _ocr_words_for_page(page, dpi=300):
+    im = page.to_image(resolution=dpi).original
+    scale = 72.0 / dpi  # 이미지 픽셀 -> PDF 포인트(나머지 파이프라인의 좌표계)
+    data = pytesseract.image_to_data(im, lang="kor+eng", config="--psm 4", output_type=Output.DICT)
+    words = []
+    for i, raw in enumerate(data["text"]):
+        text = raw.strip()
+        if not text:
+            continue
+        words.append(
+            {
+                "text": text,
+                "x0": data["left"][i] * scale,
+                "top": data["top"][i] * scale,
+            }
+        )
+    return words
+
+
+# ---------------------------------------------------------------------------
 # 공통: 발급번호/월 파싱, 페이지 그룹핑 (문서 종류 무관)
 # ---------------------------------------------------------------------------
 
@@ -145,6 +224,9 @@ def _group_target_pages(pdf, cfg):
     prev_was_target = False
     for i, page in enumerate(pdf.pages):
         text = page.extract_text() or ""
+        scanned = not text.strip() and len(page.chars) == 0
+        if scanned:
+            text = _ocr_page_text(page)  # 텍스트 레이어 없는 스캔본 폴백
         if not cfg["is_target_page"](text):
             prev_was_target = False
             continue
@@ -154,6 +236,17 @@ def _group_target_pages(pdf, cfg):
         issue_digits = re.sub(r"\D", "", issue_no) if issue_no else None
         has_header = issue_no is not None
         issue_reliable = issue_digits is not None and len(issue_digits) >= 10
+
+        month = _normalize_month(text) if has_header else None
+        if scanned and has_header:
+            # 스캔본은 제목 줄("OOOO년 OO월 ...")만 유독 전체 페이지 OCR에서
+            # 깨지는데(실측: _ocr_month_header_text docstring 참고), 안
+            # 깨지고 "월"까지 우연히 맞아떨어지는 다른 날짜(예: 페이지 하단
+            # 신청일 "2026년 06월 04일")를 잘못 집어오기도 한다(실측:
+            # 광영건설 -- 청구월 04월인데 신청일 06월을 집음). 그래서 스캔본은
+            # 전체 페이지 정규식 결과를 신뢰하지 않고, 제목 줄만 다시 잘라
+            # OCR한 값을 우선한다.
+            month = _normalize_month(_ocr_month_header_text(page)) or month
 
         same_doc_as_prev = (
             prev_was_target
@@ -166,7 +259,7 @@ def _group_target_pages(pdf, cfg):
             groups.append(
                 {
                     "company_text": text if has_header else "",
-                    "month": _normalize_month(text) if has_header else None,
+                    "month": month,
                     "issue_no": issue_no,
                     "issue_digits": issue_digits,
                     "page_indices": [i],
@@ -195,6 +288,13 @@ def _cluster_lines(words, gap):
 
 def _find_table_body_bounds(words, page_height, cfg):
     header_word = next((w for w in words if w["text"] == cfg["header_word"]), None)
+    if header_word is None and len(cfg["header_word"]) > 1:
+        # 일부 협력업체 PDF는 "순번" 헤더 칸이 좁아서 "순"/"번"이 한 단어가
+        # 아니라 두 줄로 쪼개져 나온다(실측: 배가건설) -- 그러면 정확히
+        # "순번"과 일치하는 단어가 없어 body_top이 0으로 떨어지고, 표 위쪽
+        # 요약란의 "고지"(고지보험료 등)가 footer로 오인돼 본문이 통째로
+        # 안 잡힌다. 첫 글자만이라도 찾아 폴백한다.
+        header_word = next((w for w in words if w["text"] == cfg["header_word"][0]), None)
     top = (header_word["top"] + cfg["header_top_margin"]) if header_word else 0
 
     footer_markers = cfg.get("footer_markers") or ()
@@ -234,6 +334,106 @@ def _words_in_box(words, x0, x1, y0, y1):
     return [w for w in words if x0 <= w["x0"] < x1 and y0 <= w["top"] < y1]
 
 
+def _ocr_cell_amount(im, x0_pt, x1_pt, y0_pt, y1_pt, scale, signed=True):
+    """포인트 좌표 박스 하나를 잘라 숫자 전용으로 OCR한다(퇴직공제 OCR과
+    같은 방식: 셀을 통째로 넓게 잡고 word-clustering에 맡기는 대신, 이미 알고
+    있는 칸 하나만 딱 잘라 psm 7(한 줄)로 읽으면 훨씬 정확하다 -- 실측:
+    워터마크가 겹친 행에서도 이 방식은 살아남음).
+
+    signed=False(순번처럼 항상 양수인 컬럼)일 땐 화이트리스트에서 "-"를
+    아예 뺀다 -- 안 그러면 셀 오른쪽 격자선이 살짝 걸려서 "-"로 오독되는
+    경우가 있다(실측: 순번 "1"이 "1-"로 읽힘 -> 파싱 실패)."""
+    pad = 3  # 포인트 -- 격자선이 살짝 걸리면 psm 7이 아예 텍스트를 못 찾는다(실측)
+    box = (
+        int((x0_pt + pad) * scale),
+        int((y0_pt + pad) * scale),
+        int((x1_pt - pad) * scale),
+        int((y1_pt - pad) * scale),
+    )
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return None
+    crop = im.crop(box)
+    crop = crop.resize((crop.width * 2, crop.height * 2), Image.LANCZOS)
+    whitelist = "-0123456789," if signed else "0123456789"
+    text = pytesseract.image_to_string(
+        crop, lang="eng", config=f'--psm 7 -c tessedit_char_whitelist="{whitelist}"'
+    ).strip()
+    if not signed:
+        # 순번처럼 쉼표 없는 작은 수는 _first_grouped_amount(쉼표 3자리 그룹만
+        # 매치)로 못 잡는다 -- _first_amount(그룹 여부 무관하게 첫 숫자 토큰)
+        # 를 쓴다.
+        return _first_amount(text)
+    grouped = _first_grouped_amount(text)
+    if grouped is not None:
+        return -grouped if "-" in text else grouped
+    for token in text.split():
+        if token.rstrip("원").lstrip("-") == "0":
+            return 0
+    return None
+
+
+def _ocr_extract_group_records_grid(page, cfg, source_label, prev_seq=None, dpi=300):
+    """스캔본 전용 대체 추출기. 실측(광영건설): 워터마크/음영이 겹친 행에서는
+    `page.extract_words()`/`_ocr_words_for_page`의 단어 단위 OCR이 그 행만
+    통째로 놓친다(전체 페이지를 한 번에 인식시키기 때문). 사람 행 경계는
+    격자선(표 테두리, 검은 픽셀) 검출로 찾는다 -- 이건 워터마크에 영향받지
+    않는다(실측 확인). 컬럼 좌표는 새로 검출하지 않고 같은 서식의 네이티브
+    PDF로 이미 검증된 `cfg["column_x_ranges"]`를 그대로 재사용한다(시각적으로
+    동일한 공단 표준 서식이라 좌표가 그대로 맞음, NOTES.md 참고). 값은 셀
+    하나씩 잘라 OCR하므로(퇴직공제 OCR과 같은 방식) 단어 단위 OCR보다 느리지만
+    워터마크에 강하다.
+    """
+    im = page.to_image(resolution=dpi).original
+    arr = np.array(im.convert("L"))
+    dark = arr < 190
+    scale = dpi / 72.0
+
+    words = _ocr_words_for_page(page, dpi=150)
+    body_top, body_bottom, _ = _find_table_body_bounds(words, page.height, cfg)
+
+    x_ranges = cfg["column_x_ranges"]
+    table_x0 = min(r[0] for r in x_ranges.values())
+    table_x1 = max(r[1] for r in x_ranges.values())
+    h_lines_px = _ocr_detect_grid_lines(
+        dark, "h", int(table_x0 * scale), int(table_x1 * scale), 0.5
+    )
+    h_lines = [y / scale for y in h_lines_px if body_top - 5 <= y / scale <= body_bottom + 5]
+    if len(h_lines) < cfg["block_height_multiplier"] + 1:
+        return [], prev_seq
+
+    mult = cfg["block_height_multiplier"]
+    value_columns = cfg["value_columns"]
+    seq_range = x_ranges["순번_pdf"]
+
+    records = []
+    for i in range(0, len(h_lines) - mult, mult):
+        y0, y1 = h_lines[i], h_lines[i + mult]
+        seq_no = _ocr_cell_amount(im, *seq_range, y0, y1, scale, signed=False)
+        values = {key: _ocr_cell_amount(im, *x_ranges[key], y0, y1, scale) for key in value_columns}
+
+        if seq_no is None and all(v is None for v in values.values()):
+            continue
+
+        amount_consistent = True
+        for a_key, b_key in cfg.get("amount_consistency_pairs", []):
+            a, b = values.get(a_key), values.get(b_key)
+            if a is not None and b is not None and b != 2 * a:
+                amount_consistent = False
+
+        needs_review = (
+            seq_no is None
+            or any(v is None for v in values.values())
+            or (prev_seq is not None and seq_no != prev_seq + 1)
+            or not amount_consistent
+        )
+        if seq_no is not None:
+            prev_seq = seq_no
+        records.append(
+            {"순번_pdf": seq_no, **values, "needs_review": needs_review, "출처파일": source_label}
+        )
+    return records, prev_seq
+
+
 def _extract_group_records(pdf, page_indices, source_label, cfg, apply_noise_filter):
     """한 문서 그룹(같은 회사x월, 페이지 1개 이상)에서 사람별 레코드를 뽑는다.
 
@@ -257,6 +457,15 @@ def _extract_group_records(pdf, page_indices, source_label, cfg, apply_noise_fil
     prev_seq = None
     for page_index in page_indices:
         page = pdf.pages[page_index]
+        if len(page.chars) == 0:
+            # 텍스트 레이어 없는 스캔본: 단어 단위 OCR은 워터마크 겹친 행을
+            # 통째로 놓치므로(실측: 광영건설) 격자선 기반 대체 추출기를 쓴다
+            # (_ocr_extract_group_records_grid docstring 참고).
+            page_records, prev_seq = _ocr_extract_group_records_grid(
+                page, cfg, source_label, prev_seq=prev_seq
+            )
+            records.extend(page_records)
+            continue
         if apply_noise_filter:
             page = page.filter(_is_real_content_char)
         words = page.extract_words(use_text_flow=False, keep_blank_chars=False)
@@ -544,6 +753,17 @@ DOCUMENT_TYPES = {
     "pension": PENSION_CONFIG,
 }
 
+# 퇴직공제부금은 이 파일의 나머지 문서 종류와 근본적으로 다르게 처리한다 --
+# 유일한 증빙 PDF(`sample/06-05. 제20회 기성 실적정산(퇴직공제).pdf`)가
+# 텍스트 레이어 없는 순수 스캔본(전 페이지 chars=0)이라 pdfplumber로 못 읽고,
+# 표 자체도 "회사x월 페이지 그룹"이 아니라 "월 1개 표에 전체 협력업체가
+# 업체명 컬럼으로 뒤섞인 한 장" 구조라 이 파일의 공용 엔진(_group_target_pages
+# 이하)과 맞지 않는다. 그래서 OCR 전용 모듈(retirement_ocr.py)로 완전히
+# 분리했다 -- DOCUMENT_TYPES 제네릭 엔진에는 넣지 않고 run()에서 doc_type이
+# "retirement"일 때만 별도 분기한다(아래 run() 참고).
+RETIREMENT_DOC_TYPE = "retirement"
+ALL_DOC_TYPES = [*DOCUMENT_TYPES.keys(), RETIREMENT_DOC_TYPE]
+
 
 # ---------------------------------------------------------------------------
 # 공통: 회사·월 자동 매칭 + 대조 + 결과 저장
@@ -561,6 +781,11 @@ def _compare_generic(excel_df, pdf_df, compare_pairs):
     순번 매칭 + 항목별 일치 판정을 한다 -- v2의 step4_compare을 문서 종류
     무관하게 일반화한 버전."""
     pdf_df = pdf_df.drop(columns=["성명"], errors="ignore")
+    if "순번_pdf" in pdf_df.columns:
+        # 스캔본 OCR 폴백(_ocr_extract_group_records_grid)은 순번을 못 읽으면
+        # None을 넣는데, 그러면 컬럼 dtype이 object가 돼 엑셀 쪽(항상 int)과
+        # 병합할 때 pandas가 타입 불일치로 에러를 낸다.
+        pdf_df["순번_pdf"] = pd.to_numeric(pdf_df["순번_pdf"], errors="coerce")
     merged = pd.merge(excel_df, pdf_df, left_on="순번_엑셀", right_on="순번_pdf", how="outer")
 
     columns = ["성명", "순번_엑셀", "순번_pdf"]
@@ -570,16 +795,59 @@ def _compare_generic(excel_df, pdf_df, compare_pairs):
         columns += [excel_col, pdf_col, diff_col]
 
     def _judge(row):
-        has_excel = pd.notna(row[compare_pairs[0][0]])
-        has_pdf = pd.notna(row[compare_pairs[0][1]])
-        if not has_excel:
-            return "엑셀_누락"
-        if not has_pdf:
-            return "PDF_누락"
+        # "행이 존재하는가"는 순번 자체로 판단한다 -- compare_pairs 값으로
+        # 판단하면 안 되는 이유(실측: 거명이앤씨): 그 달 근무가 없어 보험료가
+        # 0원인 사람을 엑셀이 빈 셀(공란)로 남겨두는 경우가 있는데, 그러면
+        # PDF는 정확히 0원을 명시하는데도 엑셀 값이 없다는 이유만으로
+        # "증빙만_존재"로 잘못 갈린다 -- 둘 다 "0원"이라는 같은 사실을
+        # 말하고 있는데도.
+        has_excel = pd.notna(row["순번_엑셀"])
+        has_pdf = pd.notna(row["순번_pdf"])
+        if not has_excel and has_pdf:
+            return "증빙만_존재(엑셀누락)"
+        if has_excel and not has_pdf:
+            return "엑셀만_존재(증빙누락)"
         if row.get("needs_review"):
-            return "확인필요"
-        all_ok = all(row[excel_col] == row[pdf_col] for excel_col, pdf_col, _ in compare_pairs)
-        return "일치" if all_ok else "불일치"
+            return "확인필요(OCR노이즈)"
+        # 일부 협력업체 엑셀은 이전 달 귀속분을 정정하는 행을 음수로 기록한다
+        # (실측: 동남건설 "26.03 변경" 비고, 건강보험료=-206700원 -- 크기는
+        # PDF의 정상 청구액과 정확히 같고 부호만 반대). PDF(공단 발급
+        # 납부확인서)는 항상 그 달의 정상 청구액만 양수로 찍혀 나와서 이런
+        # 정정 행과는 애초에 비교 대상이 아니다 -- 그대로 두면 "과오납_의심"
+        # 으로 잘못 분류돼 실제로는 없는 초과청구처럼 보인다.
+        def _num_or_zero(v):
+            # `v or 0`을 안 쓰는 이유: 엑셀의 빈 셀은 merge 후 float('nan')이
+            # 되는데, `nan or 0`은 nan을 그대로 돌려준다(nan은 파이썬에서
+            # falsy가 아님) -- 그러면 이후 `nan != 0`이 항상 True가 되고
+            # `nan < p_val`은 항상 False가 되어 매번 "과소납_의심"으로 잘못
+            # 판정됐다(실측: 거명이앤씨, 빈 셀 29건 전부 오탐).
+            return 0 if pd.isna(v) else v
+
+        if any(_num_or_zero(row.get(excel_col)) < 0 for excel_col, _, _ in compare_pairs):
+            return "확인필요(엑셀정정행)"
+
+        all_ok = True
+        has_diff = False
+        overpaid = False
+        underpaid = False
+        for excel_col, pdf_col, _ in compare_pairs:
+            e_val = _num_or_zero(row.get(excel_col))
+            p_val = _num_or_zero(row.get(pdf_col))
+            if e_val != p_val:
+                all_ok = False
+                has_diff = True
+                if e_val < p_val:
+                    overpaid = True  # 증빙 금액이 엑셀보다 큼 (초과청구/과오납 위험)
+                else:
+                    underpaid = True # 엑셀 금액이 증빙보다 큼 (납부부족/과소납 위험)
+
+        if all_ok:
+            return "일치"
+        if overpaid and not underpaid:
+            return "과오납_의심(증빙>엑셀)"
+        if underpaid and not overpaid:
+            return "과소납_의심(엑셀>증빙)"
+        return "불일치"
 
     merged["판정"] = merged.apply(_judge, axis=1)
     columns += ["판정", "needs_review", "출처파일"]
@@ -665,13 +933,26 @@ def run_doc_type(doc_type, excel_path, pdf_path, sheet_filter=None):
     return combined
 
 
-def run(doc_types, excel_path, pdf_paths, result_dir, sheet_filter=None):
-    """doc_types 목록(예: ["health"] 또는 ["health","pension"])을 순서대로
-    처리해 결과를 하나로 합쳐 저장한다. pdf_paths는 {doc_type: Path} 매핑."""
+def run(doc_types, excel_path, pdf_paths, result_dir, sheet_filter=None, retirement_excel_path=None):
+    """doc_types 목록(예: ["health"] 또는 ["health","pension","retirement"])을
+    순서대로 처리해 결과를 하나로 합쳐 저장한다. pdf_paths는 {doc_type: Path}
+    매핑. retirement는 건강/연금과 엔진 자체가 달라(모듈 위쪽 주석 참고)
+    retirement_ocr.run_retirement()으로 따로 처리하고, 그 전용 엑셀(퇴직공제부금
+    납부 신고 내역.xlsx)도 건강/연금이 쓰는 엑셀(보험료 납부_단위공사별.xlsx)과
+    달라서 별도 경로로 받는다."""
     all_combined = []
     for doc_type in doc_types:
         pdf_path = pdf_paths[doc_type]
-        combined = run_doc_type(doc_type, excel_path, pdf_path, sheet_filter=sheet_filter)
+        if doc_type == RETIREMENT_DOC_TYPE:
+            if retirement_excel_path is None:
+                print("경고: 퇴직공제 전용 엑셀(예: 퇴직공제부금 납부 신고 내역.xlsx)을 찾지 못해 건너뜁니다.", flush=True)
+                continue
+            combined = retirement_ocr.run_retirement(retirement_excel_path, pdf_path, result_dir=None, log=lambda m: print(m, flush=True))
+            if not combined.empty:
+                combined.insert(0, "문서종류", "퇴직공제부금")
+                combined.insert(1, "시트명", combined["리포트월"])
+        else:
+            combined = run_doc_type(doc_type, excel_path, pdf_path, sheet_filter=sheet_filter)
         if not combined.empty:
             all_combined.append(combined)
         print(flush=True)
@@ -697,7 +978,7 @@ def _parse_args():
     parser.add_argument(
         "--doc-type",
         required=True,
-        choices=[*DOCUMENT_TYPES.keys(), "all"],
+        choices=[*ALL_DOC_TYPES, "all"],
         help="처리할 문서 종류. 'all'이면 전부 순서대로 처리 후 결과를 합침",
     )
     parser.add_argument("--excel", default=None)
@@ -716,32 +997,85 @@ def _parse_args():
     return parser.parse_args()
 
 
-def _find_pdf_for_doc_type(raw_dir, doc_type):
-    """raw 폴더에서 해당 문서 종류로 보이는 PDF를 이름 키워드로 자동 탐색한다."""
-    keyword = {"health": "건강", "pension": "국민연금"}[doc_type]
-    candidates = [p for p in Path(raw_dir).glob("*.pdf") if keyword in p.name]
-    if len(candidates) == 1:
-        return candidates[0]
-    if len(candidates) == 0:
-        raise FileNotFoundError(f"raw 폴더에서 '{keyword}'가 포함된 PDF를 찾을 수 없습니다.")
-    raise ValueError(f"raw 폴더에 '{keyword}' PDF가 {len(candidates)}개 있어 자동 선택 불가: {[c.name for c in candidates]}")
+def _find_default_excel(search_dirs):
+    for d in search_dirs:
+        p = Path(d)
+        if not p.exists():
+            continue
+        candidates = list(p.glob("*.xlsx"))
+        # 보험료 납부_단위공사별 우선 탐색
+        named = [c for c in candidates if "보험료" in c.name or "단위공사" in c.name]
+        if named:
+            return named[0]
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def _find_retirement_excel(search_dirs):
+    """퇴직공제는 health/pension이 쓰는 엑셀(보험료 납부_단위공사별.xlsx)이
+    아니라 별도 파일(퇴직공제부금 납부 신고 내역.xlsx)을 쓴다 -- 월별 시트
+    ('26.04' 등)로만 구성돼 있어 이름으로 구분한다."""
+    for d in search_dirs:
+        p = Path(d)
+        if not p.exists():
+            continue
+        candidates = [c for c in p.glob("*.xlsx") if "퇴직공제" in c.name]
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def _find_pdf_for_doc_type(search_dirs, doc_type):
+    """지정된 디렉토리들에서 해당 문서 종류로 보이는 PDF를 이름 키워드로 자동 탐색한다."""
+    keyword_map = {
+        "health": "건강",
+        "pension": "국민연금",
+        "retirement": "퇴직공제",
+    }
+    keyword = keyword_map.get(doc_type, doc_type)
+    for d in search_dirs:
+        p = Path(d)
+        if not p.exists():
+            continue
+        candidates = [f for f in p.glob("*.pdf") if keyword in f.name]
+        if len(candidates) >= 1:
+            return candidates[0]
+    raise FileNotFoundError(f"탐색 디렉토리({search_dirs})에서 '{keyword}'가 포함된 PDF를 찾을 수 없습니다.")
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    raw_dir = Path(args.raw_dir)
+    search_dirs = [Path(args.raw_dir), BASE_DIR / "sample", BASE_DIR / "raw", BASE_DIR / "ocr_done"]
     result_dir = Path(args.result_dir)
 
-    excel_path = Path(args.excel) if args.excel else _find_single_file(raw_dir, "*.xlsx", "엑셀")
+    if args.excel:
+        excel_path = Path(args.excel)
+    else:
+        excel_path = _find_default_excel(search_dirs)
+        if not excel_path:
+            raise FileNotFoundError(f"탐색 경로({search_dirs})에서 엑셀 원장(*.xlsx)을 찾을 수 없습니다.")
 
-    doc_types = list(DOCUMENT_TYPES.keys()) if args.doc_type == "all" else [args.doc_type]
+    doc_types = ALL_DOC_TYPES if args.doc_type == "all" else [args.doc_type]
 
     if args.pdf and len(doc_types) > 1:
         raise SystemExit("--pdf는 --doc-type이 단일 문서 종류일 때만 지정할 수 있습니다.")
 
     pdf_paths = {}
     for dt in doc_types:
-        pdf_paths[dt] = Path(args.pdf) if args.pdf else _find_pdf_for_doc_type(raw_dir, dt)
+        pdf_paths[dt] = Path(args.pdf) if args.pdf else _find_pdf_for_doc_type(search_dirs, dt)
 
-    run(doc_types, excel_path, pdf_paths, result_dir, sheet_filter=args.sheet_filter)
-    print("\n완료! result 폴더 확인하세요.")
+    retirement_excel_path = None
+    if RETIREMENT_DOC_TYPE in doc_types:
+        retirement_excel_path = _find_retirement_excel(search_dirs)
+        if not retirement_excel_path:
+            raise FileNotFoundError(f"탐색 경로({search_dirs})에서 퇴직공제 전용 엑셀(*퇴직공제*.xlsx)을 찾을 수 없습니다.")
+
+    print(f"[*] 엑셀 파일: {excel_path}")
+    if retirement_excel_path:
+        print(f"[*] 퇴직공제 전용 엑셀: {retirement_excel_path}")
+    for dt, p in pdf_paths.items():
+        print(f"[*] PDF 증빙 [{dt}]: {p}")
+
+    run(doc_types, excel_path, pdf_paths, result_dir, sheet_filter=args.sheet_filter, retirement_excel_path=retirement_excel_path)
+    print("\n완료! result 폴더를 확인하세요.")
