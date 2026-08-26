@@ -90,7 +90,9 @@ HR_COST_ALLOWED_EXT = {"xlsx", "xlsm", "xls", "pdf"}
 # 이슈#5-3: 하도급사별 노무비 지급 명세서를 공통 스키마로 정규화한 결과를
 # 표준 템플릿으로 내보내기 전까지 메모리에 보관
 _LEDGER_RESULTS = {}
-LEDGER_ALLOWED_EXT = {"xlsx", "xlsm"}
+# 노무비 명세서는 엑셀만이지만, 같이 올리는 대조 자료로는 공단 발급 PDF도 받는다
+# (이슈 #5-1의 정밀 추출 경로 -- 생년월일이 있어 동명이인을 갈라 대조할 수 있다).
+LEDGER_ALLOWED_EXT = {"xlsx", "xlsm", "pdf"}
 
 META_LABELS = [
     ("project_name", "공사명"),
@@ -458,7 +460,7 @@ def api_labor_ledger_extract():
 
     saved_paths = []
     attendance, summaries, filenames = [], [], []
-    premium, premium_files = [], []
+    premium, premium_files, premium_skipped = [], [], []
     try:
         for f in uploads:
             filename = safe_original_filename(f.filename)
@@ -471,15 +473,30 @@ def api_labor_ledger_extract():
                     else ""
                 )
                 raise ValueError(
-                    f"노무비 명세서는 엑셀(.xlsx/.xlsm)만 업로드할 수 있습니다: {f.filename}.{extra}"
+                    f"노무비 명세서는 엑셀(.xlsx/.xlsm), 대조 자료는 엑셀 또는 공단 발급 PDF만 "
+                    f"업로드할 수 있습니다: {f.filename}.{extra}"
                 )
             path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
             f.save(path)
             saved_paths.append(path)
 
-            # 어떤 자료인지 파일명이 아니라 내용으로 가른다 -- 노무비 명세서는
-            # 성명+일자별 공수 표가 있고, 보험료 원장/퇴직공제 신고는 그런 표가
-            # 없는 대신 기존 인건비 추출 양식에 걸린다.
+            # 공단 발급 PDF는 좌표 기반 정밀 추출 경로로 보낸다 -- 성명·생년월일까지
+            # 나오므로 대조에서 동명이인을 가를 수 있다.
+            if filename.lower().endswith(".pdf"):
+                records, _stats = extract_settlement_pdf(path, filename)
+                precise = [r for r in records if _usable_for_cross_check(r)]
+                if precise:
+                    premium.extend(precise)
+                    premium_files.append(filename)
+                if len(precise) < len(records):
+                    premium_skipped.append(
+                        {"filename": filename, "kept": len(precise), "dropped": len(records) - len(precise)}
+                    )
+                continue
+
+            # 엑셀은 파일명이 아니라 내용으로 가른다 -- 노무비 명세서는 성명+일자별
+            # 공수 표가 있고, 보험료 원장/퇴직공제 신고는 그런 표가 없는 대신 기존
+            # 인건비 추출 양식에 걸린다.
             rows, people = parse_labor_ledger(path, filename)
             if people:
                 filenames.append(filename)
@@ -523,6 +540,7 @@ def api_labor_ledger_extract():
         token=token,
         filenames=filenames,
         premium_files=premium_files,
+        premium_skipped=premium_skipped,
         summaries=sorted(summaries, key=lambda r: (r["company"] or "", r["year_month"] or "", r["person"] or "")),
         by_company=_ledger_by_company(summaries),
         attendance_count=len(attendance),
@@ -534,6 +552,20 @@ def api_labor_ledger_extract():
         cross_headers=CROSS_HEADERS,
     )
     return jsonify({"html": html, "token": token})
+
+
+def _usable_for_cross_check(record):
+    """이 PDF 레코드를 대조에 써도 되는지 판단한다.
+
+    스캔본 PDF는 좌표 기반 정밀 경로가 서식을 못 잡으면 페이지 전체 OCR로 떨어지는데,
+    그 결과는 대조에 넣으면 오히려 해롭다 -- 실측(신한ACT 26.03 건강, 순수 스캔본
+    4페이지): 성명이 전부 "확인필요_..."로 나오고 귀속월도 2026-01/2026-04로 잘못
+    읽혔다(실제 2026-03). 매칭이 안 될 뿐 아니라 엉뚱한 달에 금액을 붙인다.
+    그래서 정밀 경로 산출물(`detail`이 있는 레코드)만 대조 소스로 받는다.
+    """
+    if not record.get("detail"):
+        return False
+    return not str(record.get("person") or "").startswith("확인필요")
 
 
 def _ledger_by_company(summaries):

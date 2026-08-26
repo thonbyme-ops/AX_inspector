@@ -99,6 +99,16 @@
 
   {% if cross_rows %}
   <h3>출역 × 보험료 대조 (이슈 #5-5)</h3>
+  {% if premium_skipped %}
+  <p class="ocr-warning">
+    ⚠ 아래 PDF는 좌표 기반 정밀 추출이 되지 않아(순수 스캔본이거나 지원하지 않는 서식) 대조에서 제외했습니다.
+    페이지 전체 OCR 결과는 성명이 인식되지 않고 귀속월도 잘못 읽히는 경우가 있어, 넣으면 엉뚱한 달에 금액을
+    붙여 오히려 해롭습니다. 공단 EDI에서 받은 전자발급 원본(네이티브 PDF)으로 올려주세요.
+    {% for s in premium_skipped %}
+      <br>· {{ s.filename }}: {{ s.dropped }}건 제외{% if s.kept %}, {{ s.kept }}건만 사용{% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
   <p class="mode-desc">
     대조 자료: {{ premium_files|join(', ') }}.
     담당자 의견 5번은 "실 출입기록으로 각종 보험료와 비교"였는데 <strong>출입기록 엑셀 샘플이 아직 없어</strong>

@@ -106,46 +106,97 @@ def _shift_month(year_month, delta):
     return f"{index // 12:04d}-{index % 12 + 1:02d}"
 
 
-def _premium_index(premium_records):
-    """부과 내역을 성명 기준과 (성명+생년월일) 기준 두 벌로 색인한다.
+# 부과 내역이 들어올 수 있는 두 갈래. 공단이 직접 발급한 확인서/결정내역서(이슈 #5-1의
+# `confirmation_extractor`)는 생년월일이 있어 동명이인을 가를 수 있고 공단 표기 합계와
+# 원 단위까지 일치가 확인된 자료라 우선한다. 자체 납부 원장은 성명뿐이라 폴백.
+#
+# **소스를 나누는 이유는 중복 합산 방지가 먼저다**: 같은 사람·같은 달이 원장과 PDF에
+# 모두 있는데 한 통에 담아 더하면 금액이 두 배가 된다(실제로 대아이앤씨 26.04는 두
+# 자료에 다 들어있다). 그래서 소스별로 따로 담고 우선순위대로 하나만 채택한다.
+SOURCE_EVIDENCE = "evidence"  # 공단 발급 PDF
+SOURCE_LEDGER = "ledger"      # 자체 납부 원장 / 신고 내역 엑셀
+SOURCE_PRIORITY = (SOURCE_EVIDENCE, SOURCE_LEDGER)
+SOURCE_LABELS = {SOURCE_EVIDENCE: "공단증빙", SOURCE_LEDGER: "자체원장"}
 
-    퇴직공제 신고 엑셀에는 생년월일이 있어 동명이인을 가를 수 있지만, 건강·연금
-    원장에는 성명뿐이다. 그래서 생년월일이 있으면 그걸 쓰고 없으면 성명으로
-    떨어지는 2단 색인을 만든다 -- 실측으로 필요성이 드러났다: NSC 26.04에 "박정규"가
+
+def _premium_index(premium_records):
+    """부과 내역을 (소스 x 조회범위)별로 색인한다.
+
+    조회범위는 성명 기준과 (성명+생년월일) 기준 두 벌이다 -- 생년월일이 있으면 그걸
+    쓰고 없으면 성명으로 떨어진다. 실측으로 필요성이 드러났다: NSC 26.04에 "박정규"가
     두 명(62세/48세) 있는데 성명만으로 매칭하니 둘 다 같은 퇴직공제 레코드(두 사람
     합계인 52일)에 붙어 양쪽 다 -27일 차이로 오탐이 났다.
     """
-    index = {"name": ({}, {}), "birth": ({}, {})}
+    index = {
+        source: {"name": ({}, {}), "birth": ({}, {})} for source in SOURCE_PRIORITY
+    }
+    # 같은 성명 키에 서로 다른 생년월일이 들어오면 그 키로 매칭한 값은 두 사람의
+    # 합이다. 실측: 대아이앤씨 26.04 건강보험 확인서에 성명이 같고 생년월일이 다른
+    # 사람이 두 쌍 있어, 성명으로만 집으면 두 사람 금액의 합이 나왔다.
+    births_per_name = {}
     for record in premium_records:
+        source = SOURCE_EVIDENCE if record.get("detail") else SOURCE_LEDGER
         company = company_key(record["company"])
         base = (company, record["person"], record["year_month"], record["category"])
         targets = [("name", base)]
         birth6 = record.get("birth6")
         if birth6:
-            targets.append(("birth", (company, record["person"], birth6, record["year_month"], record["category"])))
+            births_per_name.setdefault(base, set()).add(birth6)
+            targets.append(
+                ("birth", (company, record["person"], birth6, record["year_month"], record["category"]))
+            )
         for scope, key in targets:
-            amounts, workdays = index[scope]
+            amounts, workdays = index[source][scope]
             amounts[key] = amounts.get(key, 0) + (record["amount"] or 0)
             days = record.get("workdays")
             if days is not None:
                 workdays[key] = workdays.get(key, 0) + days
-    return index
+
+    ambiguous = {key for key, births in births_per_name.items() if len(births) > 1}
+    return {"sources": index, "ambiguous_names": ambiguous}
+
+
+def _keys_for(company, person, birth6, category, year_month):
+    return (
+        ("birth", (company, person, birth6, year_month, category) if birth6 else None),
+        ("name", (company, person, year_month, category)),
+    )
 
 
 def _lookup(index, company, person, birth6, category, year_month):
-    """당월 -> 차월 -> 전월 순으로 찾아 (표시문구, 금액, 잡힌 연월, 조회범위)를 돌려준다."""
+    """당월 -> 차월 -> 전월 순으로 찾아 (표시문구, 금액, 잡힌 연월, 조회범위, 소스,
+    성명모호 여부)를 돌려준다. 같은 달 안에서는 공단 증빙을 자체 원장보다 우선한다.
+
+    금액 0원은 "부과 안 됨"이 아니라 "그 달에 0원으로 부과됨"이다(실측: 대아이앤씨
+    26.04 원장에 0원 행이 있다). 그래서 키 존재 여부로 판단한다 -- 값이 0일 때
+    다음 달을 뒤지면 엉뚱한 달 금액을 그 사람 것으로 붙이게 된다.
+    """
     for delta, label in ((0, "당월"), (1, "차월"), (-1, "전월")):
         target = _shift_month(year_month, delta)
-        for scope, key in (
-            ("birth", (company, person, birth6, target, category) if birth6 else None),
-            ("name", (company, person, target, category)),
-        ):
-            if key is None:
-                continue
-            amount = index[scope][0].get(key)
-            if amount:
-                return (label if delta == 0 else f"{label}({target})"), amount, target, scope
-    return "없음", None, None, None
+        for source in SOURCE_PRIORITY:
+            for scope, key in _keys_for(company, person, birth6, category, target):
+                if key is None or key not in index["sources"][source][scope][0]:
+                    continue
+                amount = index["sources"][source][scope][0][key]
+                text = label if delta == 0 else f"{label}({target})"
+                if amount == 0:
+                    text += "(0원)"
+                name_key = (company, person, target, category)
+                ambiguous = scope == "name" and name_key in index["ambiguous_names"]
+                return text, amount, target, scope, source, ambiguous
+    return "없음", None, None, None, None, False
+
+
+def _other_source_amount(index, company, person, birth6, category, year_month, source):
+    """같은 사람·달을 다른 소스에서도 찾아 금액을 돌려준다(증빙 vs 원장 대조용)."""
+    other = SOURCE_LEDGER if source == SOURCE_EVIDENCE else SOURCE_EVIDENCE
+    for scope, key in _keys_for(company, person, birth6, category, year_month):
+        if key is None:
+            continue
+        amounts = index["sources"][other][scope][0]
+        if key in amounts:
+            return amounts[key]
+    return None
 
 
 def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
@@ -192,13 +243,31 @@ def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
         short_days = []
         birth6 = summary.get("birth6")
         row["동명이인"] = name_counts.get((company, person, year_month), 1) > 1
+        evidence_gaps = []
+        ambiguous_hits = []
         for category in CHECK_CATEGORIES:
-            label, amount, hit_month, scope = _lookup(
+            label, amount, hit_month, scope, source, ambiguous = _lookup(
                 index, company, person, birth6, category, year_month
             )
             row[category] = label
             row[f"{category}_금액"] = amount
             row[f"{category}_매칭"] = scope
+            row[f"{category}_소스"] = SOURCE_LABELS.get(source)
+            if ambiguous:
+                ambiguous_hits.append(category)
+
+            # 공단 증빙과 자체 원장에 같은 사람·달이 둘 다 있으면 금액을 맞춰본다 --
+            # 다르면 그게 곧 "증빙 대비 원장 불일치"다.
+            if hit_month and source:
+                other = _other_source_amount(
+                    index, company, person, birth6, category, hit_month, source
+                )
+                if other is not None and other != amount:
+                    evidence = amount if source == SOURCE_EVIDENCE else other
+                    ledger = other if source == SOURCE_EVIDENCE else amount
+                    evidence_gaps.append(
+                        f"{CATEGORY_LABELS[category]} 증빙 {evidence:,} vs 원장 {ledger:,}"
+                    )
             if label == "없음":
                 if category == "pension" and age is not None and age >= PENSION_EXEMPT_AGE:
                     row[category] = f"적용제외({age}세)"
@@ -222,7 +291,7 @@ def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
                     if scope == "birth"
                     else (company, person, hit_month, category)
                 )
-                row["퇴직공제_근로일수"] = index[scope][1].get(key)
+                row["퇴직공제_근로일수"] = index["sources"][source][scope][1].get(key)
 
         reported = row.get("퇴직공제_근로일수")
         row["일수차이"] = (
@@ -233,6 +302,13 @@ def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
         row["_adjacent"] = adjacent
         row["_exempt"] = exempt
         row["_short_days"] = short_days
+        row["_evidence_gaps"] = evidence_gaps
+        row["_ambiguous_hits"] = ambiguous_hits
+        row["증빙대조"] = "; ".join(evidence_gaps)
+        # 값이 잡힌 비목이 전부 생년월일로 매칭됐는지 -- 그러면 동명이인이어도
+        # 서로의 값을 집을 수 없어 판정을 믿을 수 있다.
+        matched = [row[f"{c}_매칭"] for c in CHECK_CATEGORIES if row[f"{c}_매칭"]]
+        row["_birth_matched"] = bool(matched) and all(s == "birth" for s in matched)
         rows.append(row)
 
     _classify(rows, day_diff_tolerance)
@@ -284,9 +360,18 @@ def _classify(rows, tolerance):
         elif abs(diff - baseline) > tolerance:
             review.append(f"일수차이_확인필요({diff:+g}일, 업체공통 {baseline:+g}일)")
 
-        if row["동명이인"]:
-            # 건강·연금은 성명만으로 매칭하므로 동명이인이면 서로의 값을 집었을
-            # 수 있다 -- 판정 자체를 신뢰하지 말라는 뜻으로 확인 대상에 올린다.
+        if row["_evidence_gaps"]:
+            review.append("증빙대비_원장불일치(" + "; ".join(row["_evidence_gaps"]) + ")")
+
+        if row["_ambiguous_hits"]:
+            # 부과 자료 쪽에 같은 성명이 여러 명 있는데 생년월일 없이 성명으로
+            # 집었다 -- 그 금액은 두 사람의 합일 수 있다.
+            review.append(
+                f"부과자료_동명이인합산주의({_labels(row['_ambiguous_hits'])})"
+            )
+        elif row["동명이인"] and not row["_birth_matched"]:
+            # 생년월일로 갈린 비목은 동명이인이어도 안전하다. 성명만으로 매칭된
+            # 비목이 하나라도 있으면 서로의 값을 집었을 수 있어 확인 대상에 올린다.
             review.append("동명이인_수동확인")
 
         if row["_lagging"]:
@@ -302,7 +387,8 @@ def _classify(rows, tolerance):
         note = [n for n in note if n]
         row["판정"] = " / ".join(review + note) if (review or note) else "정상"
         row["needs_review"] = bool(review)
-        for key in ("_missing", "_lagging", "_adjacent", "_exempt", "_short_days"):
+        for key in ("_missing", "_lagging", "_adjacent", "_exempt", "_short_days",
+                    "_evidence_gaps", "_birth_matched", "_ambiguous_hits"):
             del row[key]
 
 
@@ -367,8 +453,10 @@ CROSS_HEADERS = [
     ("장기요양", "longterm"),
     ("국민연금", "pension"),
     ("퇴직공제", "retirement"),
+    ("부과자료 출처", "health_소스"),
     ("실지급액", "실지급액"),
     ("동명이인", "동명이인"),
+    ("증빙대조", "증빙대조"),
     ("판정", "판정"),
 ]
 

@@ -83,6 +83,14 @@ def _parse_birthdate(text):
     return f"{year}-{int(month):02d}-{int(day):02d}"
 
 
+def _birth6(birthdate):
+    """"1958-06-08" -> "580608" (주민번호 앞 6자리와 같은 형식)."""
+    if not birthdate:
+        return None
+    year, month, day = birthdate.split("-")
+    return f"{year[2:]}{month}{day}"
+
+
 def _split_name_birthdate(cell_text):
     """건강보험 서식처럼 성명과 생년월일이 한 칸에 같이 잡힌 경우를 가른다."""
     birthdate = _parse_birthdate(cell_text)
@@ -162,6 +170,10 @@ def extract_confirmation(pdf_path, category, max_pages=None):
                             "company": company or "미상",
                             "person": person or f"확인필요_{row.get('순번_pdf')}",
                             "birthdate": birthdate,
+                            # 노무비 명세서/퇴직공제 신고에서 쓰는 주민번호 앞 6자리와
+                            # 같은 형식으로도 함께 담는다 -- 이게 있으면 동명이인을
+                            # 갈라서 대조할 수 있다(이슈 #5-5).
+                            "birth6": _birth6(birthdate),
                             "year_month": year_month,
                             "category": cat,
                             "amount": amount,

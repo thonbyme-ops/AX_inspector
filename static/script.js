@@ -9,7 +9,7 @@ const MODE_LABELS = {
   hrcost: { a: "파일 1: 보험료 납부_단위공사별 (엑셀) 또는 실적정산 (PDF)", b: "파일 2: 퇴직공제부금 납부 신고 내역 (엑셀) 또는 실적정산 (PDF)" },
   ledger: {
     a: "파일 1: 노무비 지급 명세서 (엑셀)",
-    b: "파일 2: 보험료 납부 원장 · 퇴직공제부금 신고 내역 (여러 개 선택 가능) — 넣으면 출역x보험료 대조까지",
+    b: "파일 2: 보험료 납부 원장 · 퇴직공제부금 신고 내역 · 공단 발급 PDF (여러 개 선택 가능) — 넣으면 출역x보험료 대조까지",
   },
 };
 const MODE_ENDPOINT = {
@@ -31,7 +31,7 @@ function applyModeUI() {
   document.getElementById("dz-label-a").textContent = MODE_LABELS[currentMode].a;
   document.getElementById("dz-label-b").textContent = MODE_LABELS[currentMode].b;
   const accept =
-    currentMode === "evidence" ? ".pdf" : currentMode === "ledger" ? ".xlsx,.xlsm" : ".pdf,.xlsx,.xlsm,.xls";
+    currentMode === "evidence" ? ".pdf" : currentMode === "ledger" ? ".xlsx,.xlsm,.pdf" : ".pdf,.xlsx,.xlsm,.xls";
   document.getElementById("input-a").accept = accept;
   document.getElementById("input-b").accept = accept;
   // 대조에 쓸 보험료 원장과 퇴직공제 신고 내역을 한 슬롯에 같이 넣을 수 있게 한다.
