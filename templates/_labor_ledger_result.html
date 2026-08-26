@@ -1,0 +1,96 @@
+<div class="result labor-ledger-result" data-token="{{ token }}">
+  <h2>노무비 명세서 정규화 결과</h2>
+  <p class="mode-desc">
+    하도급사마다 다른 양식({{ filenames|join(', ') }})을 공통 스키마로 통일했습니다.
+    성명 · 생년월일 앞 6자리 · 직종 · <strong>일자별 공수</strong>를 뽑아냈으므로, 이 결과가
+    출입기록 · TBM · 현장 인부명부와 대조해 실제 출입일자를 산정하는 기준 자료가 됩니다.
+  </p>
+  {% if needs_review_count %}
+  <p class="ocr-warning">
+    ⚠ {{ needs_review_count }}명은 일자별 공수를 합한 값이 명세서에 적힌 총공수와 다릅니다.
+    아래 표에서 "확인필요" 표시를 확인해주세요.
+  </p>
+  {% else %}
+  <p class="mode-desc">
+    ✓ 전원({{ summaries|length }}명) 일자별 공수 합계가 명세서에 적힌 총공수와 일치합니다.
+  </p>
+  {% endif %}
+
+  <div class="evidence-summary">
+    인원 {{ summaries|length }}명 · 출역 레코드 {{ attendance_count }}건
+    · <span class="hint">열 제목을 클릭하면 정렬됩니다.</span>
+  </div>
+
+  <div class="actions">
+    <a href="{{ url_for('api_labor_ledger_template', token=token) }}"><button type="button">표준 양식 엑셀로 내보내기</button></a>
+  </div>
+
+  <h3>업체 · 월별 집계</h3>
+  <div class="table-scroll">
+    <table class="cmp-table hr-cost-table sortable-table" id="table-ledger-company">
+      <thead>
+        <tr>
+          <th class="label-cell sortable" data-type="text">업체명</th>
+          <th class="label-cell sortable" data-type="text">연월</th>
+          <th class="sortable" data-type="number">인원</th>
+          <th class="sortable" data-type="number">출역일수 합</th>
+          <th class="sortable" data-type="number">총공수 합</th>
+          <th class="sortable" data-type="number">실지급액 합</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in by_company %}
+        <tr>
+          <td class="label-cell">{{ row.company }}</td>
+          <td class="label-cell">{{ row.year_month }}</td>
+          <td>{{ row.people }}</td>
+          <td>{{ row.days }}</td>
+          <td>{{ row.manday }}</td>
+          <td>{{ '{:,}'.format(row.paid) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h3>인별 출역 · 지급 내역 (전체 {{ summaries|length }}명)</h3>
+  <input type="text" class="table-filter" data-target="table-ledger-person" placeholder="업체명 또는 성명 검색">
+  <div class="table-scroll table-scroll-tall">
+    <table class="cmp-table hr-cost-table sortable-table" id="table-ledger-person">
+      <thead>
+        <tr>
+          <th class="label-cell sortable" data-type="text">업체명</th>
+          <th class="label-cell sortable" data-type="text">연월</th>
+          <th class="label-cell sortable" data-type="text">성명</th>
+          <th class="label-cell sortable" data-type="text">생년월일6</th>
+          <th class="label-cell sortable" data-type="text">직종</th>
+          <th class="sortable" data-type="number">출역일수</th>
+          <th class="sortable" data-type="number">총공수</th>
+          <th class="sortable" data-type="number">총공수(기재)</th>
+          <th class="sortable" data-type="number">일급</th>
+          <th class="sortable" data-type="number">지급총액</th>
+          <th class="sortable" data-type="number">실지급액</th>
+          <th class="label-cell sortable" data-type="text">확인</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summaries %}
+        <tr {% if row.needs_review %}class="row-review"{% endif %}>
+          <td class="label-cell">{{ row.company }}</td>
+          <td class="label-cell">{{ row.year_month }}</td>
+          <td class="label-cell">{{ row.person }}</td>
+          <td class="label-cell">{{ row.birth6 or '' }}</td>
+          <td class="label-cell">{{ row.job or '' }}</td>
+          <td>{{ row['출역일수_계산'] }}</td>
+          <td>{{ row['총공수_계산'] }}</td>
+          <td>{{ row['총공수_기재'] if row['총공수_기재'] is not none else '' }}</td>
+          <td>{{ '{:,}'.format(row['일급']) if row['일급'] else '' }}</td>
+          <td>{{ '{:,}'.format(row['지급총액']) if row['지급총액'] else '' }}</td>
+          <td>{{ '{:,}'.format(row['실지급액']) if row['실지급액'] else '' }}</td>
+          <td class="label-cell">{{ '확인필요' if row.needs_review else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

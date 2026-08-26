@@ -25,6 +25,7 @@ from hr_cost_extractor import (
     CATEGORY_ORDER,
     CATEGORY_LABELS,
 )
+from labor_ledger_extractor import build_labor_template_workbook, parse_labor_ledger
 from settlement_pdf_extractor import extract_settlement_pdf
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -85,6 +86,11 @@ _COMPARISONS = {}
 _HR_COST_RESULTS = {}
 HR_COST_ALLOWED_EXT = {"xlsx", "xlsm", "xls", "pdf"}
 
+# 이슈#5-3: 하도급사별 노무비 지급 명세서를 공통 스키마로 정규화한 결과를
+# 표준 템플릿으로 내보내기 전까지 메모리에 보관
+_LEDGER_RESULTS = {}
+LEDGER_ALLOWED_EXT = {"xlsx", "xlsm"}
+
 META_LABELS = [
     ("project_name", "공사명"),
     ("contract_no", "계약번호"),
@@ -103,6 +109,10 @@ def allowed_file(filename):
 
 def allowed_hr_cost_file(filename):
     return "." in filename and filename.rsplit(".", 1)[-1].lower() in HR_COST_ALLOWED_EXT
+
+
+def allowed_ledger_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[-1].lower() in LEDGER_ALLOWED_EXT
 
 
 def safe_original_filename(filename):
@@ -430,6 +440,102 @@ def api_hr_cost_save(token):
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"ok": True, "upload_id": upload_id})
+
+
+@app.route("/api/labor_ledger/extract", methods=["POST"])
+@login_required
+def api_labor_ledger_extract():
+    """하도급사별 노무비 지급 명세서(양식 상이)를 공통 스키마로 정규화한다 (이슈 #5-3)."""
+    uploads = [f for f in (request.files.get("file_a"), request.files.get("file_b")) if f and f.filename]
+    if not uploads:
+        return jsonify({"error": "노무비 지급 명세서 엑셀을 최소 한 개 업로드해주세요."}), 400
+
+    saved_paths = []
+    attendance, summaries, filenames = [], [], []
+    try:
+        for f in uploads:
+            filename = safe_original_filename(f.filename)
+            if not filename or not allowed_ledger_file(filename):
+                # 실제 제출본에 구형 .xls도 섞여 있는데(실측: NSC 26.03) openpyxl이
+                # 읽지 못하므로, 그냥 거부하지 않고 변환 방법을 알려준다.
+                extra = (
+                    " 엑셀에서 열어 '다른 이름으로 저장 > Excel 통합 문서(.xlsx)'로 바꿔 올려주세요."
+                    if filename.lower().endswith(".xls")
+                    else ""
+                )
+                raise ValueError(
+                    f"노무비 명세서는 엑셀(.xlsx/.xlsm)만 업로드할 수 있습니다: {f.filename}.{extra}"
+                )
+            path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
+            f.save(path)
+            saved_paths.append(path)
+            filenames.append(filename)
+            rows, people = parse_labor_ledger(path, filename)
+            attendance.extend(rows)
+            summaries.extend(people)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"파일 처리 중 오류가 발생했습니다: {e}"}), 500
+    finally:
+        for p in saved_paths:
+            _safe_remove(p)
+
+    if not summaries:
+        return jsonify({
+            "error": "출역 데이터를 찾지 못했습니다. 성명과 일자별 공수가 있는 "
+                     "'노무비 지급 명세서' 시트가 포함된 파일인지 확인해주세요."
+        }), 400
+
+    token = uuid.uuid4().hex
+    _LEDGER_RESULTS[token] = {
+        "attendance": attendance,
+        "summaries": summaries,
+        "created_at": time.time(),
+    }
+    html = render_template(
+        "_labor_ledger_result.html",
+        token=token,
+        filenames=filenames,
+        summaries=sorted(summaries, key=lambda r: (r["company"] or "", r["year_month"] or "", r["person"] or "")),
+        by_company=_ledger_by_company(summaries),
+        attendance_count=len(attendance),
+        needs_review_count=sum(1 for s in summaries if s["needs_review"]),
+    )
+    return jsonify({"html": html, "token": token})
+
+
+def _ledger_by_company(summaries):
+    totals = {}
+    for s in summaries:
+        key = (s["company"], s["year_month"])
+        agg = totals.setdefault(key, {"people": 0, "days": 0, "manday": 0.0, "paid": 0})
+        agg["people"] += 1
+        agg["days"] += s["출역일수_계산"]
+        agg["manday"] += s["총공수_계산"]
+        agg["paid"] += s.get("실지급액") or 0
+    return [
+        {"company": company, "year_month": year_month, **agg, "manday": round(agg["manday"], 2)}
+        for (company, year_month), agg in sorted(totals.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or ""))
+    ]
+
+
+@app.route("/api/labor_ledger/template/<token>")
+@login_required
+def api_labor_ledger_template(token):
+    record = _LEDGER_RESULTS.get(token)
+    if not record:
+        abort(404, "정규화 결과를 찾을 수 없습니다. 다시 업로드해주세요.")
+    wb = build_labor_template_workbook(record["attendance"], record["summaries"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name="노무비_출역_표준양식.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @app.route("/api/history/companies")

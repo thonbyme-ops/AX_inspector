@@ -6,45 +6,57 @@ const MODE_LABELS = {
   summary: { a: "파일 A (예: 검사요청서)", b: "파일 B (예: 검사보고서)" },
   evidence: { a: "파일 A: 노무비 지급 내역서", b: "파일 B: 퇴직공제부금 납부 신고 내역" },
   hrcost: { a: "파일 1: 보험료 납부_단위공사별 (엑셀) 또는 실적정산 (PDF)", b: "파일 2: 퇴직공제부금 납부 신고 내역 (엑셀) 또는 실적정산 (PDF)" },
+  ledger: { a: "파일 1: 노무비 지급 명세서 (엑셀)", b: "파일 2: 노무비 지급 명세서 (엑셀, 다른 업체/월)" },
 };
 const MODE_ENDPOINT = {
   summary: "/api/compare",
   evidence: "/api/compare_evidence",
   hrcost: "/api/hr_cost/extract",
+  ledger: "/api/labor_ledger/extract",
 };
 const MODE_BUTTON_LABEL = {
   summary: "비교하기",
   evidence: "비교하기",
   hrcost: "추출하기",
+  ledger: "정규화하기",
 };
+// 파일 한 개만 올려도 되는 모드 (비교 모드는 두 개가 다 있어야 한다)
+const SINGLE_FILE_MODES = new Set(["hrcost", "ledger"]);
 
 function applyModeUI() {
   document.getElementById("dz-label-a").textContent = MODE_LABELS[currentMode].a;
   document.getElementById("dz-label-b").textContent = MODE_LABELS[currentMode].b;
-  const accept = currentMode === "evidence" ? ".pdf" : ".pdf,.xlsx,.xlsm,.xls";
+  const accept =
+    currentMode === "evidence" ? ".pdf" : currentMode === "ledger" ? ".xlsx,.xlsm" : ".pdf,.xlsx,.xlsm,.xls";
   document.getElementById("input-a").accept = accept;
   document.getElementById("input-b").accept = accept;
   document.getElementById("compare-btn").textContent = MODE_BUTTON_LABEL[currentMode];
   updateCompareButton();
 }
 
+const MODAL_TITLES = {
+  hrcost: "데이터 추출",
+  ledger: "노무비 명세서 양식 통일",
+  compare: "신규 기성 검증 및 서류 업로드",
+};
+
 function setTopMode(topTab) {
-  // topTab: "compare" | "hrcost"
+  // topTab: "compare" | "hrcost" | "ledger"
   document.getElementById("mode-compare-desc").hidden = topTab !== "compare";
   document.getElementById("mode-hrcost-desc").hidden = topTab !== "hrcost";
+  document.getElementById("mode-ledger-desc").hidden = topTab !== "ledger";
   document.getElementById("compare-submode-section").hidden = topTab !== "compare";
-  document.getElementById("hrcost-hint").hidden = topTab !== "hrcost";
+  document.getElementById("hrcost-hint").hidden = !SINGLE_FILE_MODES.has(topTab);
   document.getElementById("result-container").innerHTML = "";
   setStatus("");
 
-  currentMode = topTab === "hrcost" ? "hrcost" : currentSubmode;
+  currentMode = topTab === "compare" ? currentSubmode : topTab;
   applyModeUI();
 }
 
 function openModal(topTab) {
   const modal = document.getElementById("verify-modal");
-  const title = document.getElementById("modal-title");
-  title.textContent = topTab === "hrcost" ? "데이터 추출" : "신규 기성 검증 및 서류 업로드";
+  document.getElementById("modal-title").textContent = MODAL_TITLES[topTab] || MODAL_TITLES.compare;
   setTopMode(topTab);
   modal.hidden = false;
 }
@@ -56,6 +68,7 @@ function closeModal() {
 function setupModalTriggers() {
   document.getElementById("open-compare-modal-btn").addEventListener("click", () => openModal("compare"));
   document.getElementById("open-hrcost-modal-btn").addEventListener("click", () => openModal("hrcost"));
+  document.getElementById("open-ledger-modal-btn").addEventListener("click", () => openModal("ledger"));
   document.getElementById("modal-close-btn").addEventListener("click", closeModal);
   document.getElementById("modal-cancel-btn").addEventListener("click", closeModal);
   document.getElementById("verify-modal").addEventListener("click", (e) => {
@@ -109,7 +122,7 @@ function setupDropzone(slot) {
 }
 
 function updateCompareButton() {
-  const ready = currentMode === "hrcost" ? !!(files.a || files.b) : !!(files.a && files.b);
+  const ready = SINGLE_FILE_MODES.has(currentMode) ? !!(files.a || files.b) : !!(files.a && files.b);
   document.getElementById("compare-btn").disabled = !ready;
 }
 
