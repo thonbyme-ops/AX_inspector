@@ -27,6 +27,68 @@ const MODE_BUTTON_LABEL = {
 // 파일 한 개만 올려도 되는 모드 (비교 모드는 두 개가 다 있어야 한다)
 const SINGLE_FILE_MODES = new Set(["hrcost", "ledger"]);
 
+// 모드마다 다루는 서류가 정해져 있는데, 엉뚱한 조합을 넣으면 스캔본 PDF를 수십 분
+// OCR한 끝에 빈 결과가 나온다(실제 제보: "기성고 요약표 비교"에 보험료 원장 엑셀과
+// 349페이지 실적정산 PDF를 넣고 2분 대기). 파일명으로 미리 알아채 경고한다 --
+// 파일명은 바뀔 수 있으니 막지는 않고 확인만 받는다.
+const MODE_DOC_HINTS = {
+  summary: {
+    label: "기성고 요약표 비교",
+    patterns: [/검\s*사\s*요\s*청\s*서/, /검\s*사\s*보\s*고\s*서/, /기성고/, /기성\s*검사/],
+  },
+  evidence: {
+    label: "노무비 · 퇴직공제부금 대조",
+    patterns: [/노무비\s*지급\s*내역서/, /퇴직공제부금[^]*?신고/],
+  },
+  hrcost: {
+    label: "데이터 추출",
+    patterns: [
+      /보험료\s*납부/, /단위공사별/, /실적정산/, /납부확인서/, /가입자\s*명부/,
+      /결정내역서/, /월별가입자/, /장기요양/, /국민연금/, /건강보험/,
+    ],
+  },
+  ledger: {
+    label: "노무비 양식 통일",
+    patterns: [/노무비.*(명세|대장)/, /노임\s*대장/, /지급\s*명세/],
+  },
+};
+
+/** 선택한 파일들이 현재 모드와 맞는지 파일명으로 살펴, 다른 모드 서류로 보이면 안내 문구를 만든다. */
+function modeMismatchWarning() {
+  const names = ["a", "b"].flatMap((slot) => (files[slot] || []).map((f) => f.name));
+  if (!names.length) return null;
+
+  const hint = MODE_DOC_HINTS[currentMode];
+  if (!hint) return null;
+  // 현재 모드 서류가 하나라도 있으면 사용자가 의도한 조합으로 본다.
+  if (names.some((n) => hint.patterns.some((re) => re.test(n)))) return null;
+
+  const suspects = new Map();
+  for (const name of names) {
+    for (const [mode, other] of Object.entries(MODE_DOC_HINTS)) {
+      if (mode === currentMode) continue;
+      if (other.patterns.some((re) => re.test(name))) {
+        if (!suspects.has(other.label)) suspects.set(other.label, []);
+        suspects.get(other.label).push(name);
+      }
+    }
+  }
+  if (!suspects.size) return null;  // 아무 패턴에도 안 걸리면(임의 파일명) 조용히 통과
+
+  const detail = [...suspects.entries()]
+    .map(([label, files]) => `"${label}" 서류로 보임: ${files.join(", ")}`)
+    .join(" / ");
+  return `지금 모드는 "${hint.label}"인데, 선택한 파일이 다른 모드 서류 같습니다. ${detail}`;
+}
+
+function renderModeWarning() {
+  const el = document.getElementById("mode-mismatch-warning");
+  if (!el) return;
+  const message = modeMismatchWarning();
+  el.textContent = message ? `⚠ ${message}` : "";
+  el.hidden = !message;
+}
+
 function applyModeUI() {
   document.getElementById("dz-label-a").textContent = MODE_LABELS[currentMode].a;
   document.getElementById("dz-label-b").textContent = MODE_LABELS[currentMode].b;
@@ -38,6 +100,7 @@ function applyModeUI() {
   document.getElementById("input-b").multiple = currentMode === "ledger";
   document.getElementById("compare-btn").textContent = MODE_BUTTON_LABEL[currentMode];
   updateCompareButton();
+  renderModeWarning();
 }
 
 const MODAL_TITLES = {
@@ -114,6 +177,7 @@ function setupDropzone(slot) {
     nameLabel.textContent = picked.map((f) => f.name).join(", ");
     zone.classList.add("has-file");
     updateCompareButton();
+    renderModeWarning();
   };
 
   zone.addEventListener("click", () => input.click());
@@ -187,6 +251,14 @@ async function runCompare() {
         `${Math.round(limit / MB)}MB를 넘습니다. 파일을 나눠서 올려주세요.`,
       true
     );
+    return;
+  }
+
+  // 모드에 안 맞는 조합이면 한 번 확인받는다 -- 그냥 보내면 스캔본 OCR로 수십 분을
+  // 쓴 뒤 빈 결과가 나온다.
+  const mismatch = modeMismatchWarning();
+  if (mismatch && !window.confirm(`${mismatch}\n\n그래도 이 모드로 진행할까요?`)) {
+    setStatus("취소했습니다. 위 안내를 참고해 모드를 바꾸거나 파일을 다시 선택해주세요.", true);
     return;
   }
 

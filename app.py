@@ -165,6 +165,21 @@ def save_upload(file_storage, slot):
     return path, filename
 
 
+def _looks_wrong_document(result):
+    """이 파일이 기성고 요약표(검사요청서·검사보고서) 양식이 아닌 것으로 보이는지.
+
+    엉뚱한 서류를 넣으면 키워드가 우연히 몇 개 걸려 빈 비교표가 나온다 -- 실측으로
+    두 경우가 뚜렷하게 갈렸다:
+      보험료 납부 원장 엑셀   : 항목 2/24, meta 0개 (시트명의 "건강"/"연금"만 우연히 매칭)
+      정상 검사요청서 PDF     : 항목 24/24, meta 8개
+    meta(공사명·계약번호·기성고 산정기간 등)는 이 양식 고유의 머리글이라 다른 서류에는
+    없다. 그래서 "항목이 1/3도 안 되고 meta도 하나도 없으면" 다른 양식으로 본다
+    (스캔본이 부분 인식된 정상 서류는 meta 하나라도 잡히면 통과한다).
+    """
+    total = len(row_definitions())
+    return len(result["items"]) * 3 < total and not any(result["meta"].values())
+
+
 def build_comparison(result_a, result_b):
     rows = []
     unread_ocr_count = 0
@@ -299,6 +314,15 @@ def api_compare():
     finally:
         for p in saved_paths:
             _safe_remove(p)
+
+    if _looks_wrong_document(result_a) and _looks_wrong_document(result_b):
+        return jsonify({
+            "error": "두 파일 모두에서 기성고 요약표(재료비·노무비·경비 등)를 찾지 "
+                     "못했습니다. '기성고 요약표 비교'는 검사요청서·검사보고서 "
+                     "전용입니다. 보험료 납부 원장이나 공단 실적정산 서류라면 "
+                     "'데이터 추출', 노무비 지급 명세서라면 '노무비 양식 통일'을 "
+                     "이용해주세요."
+        }), 400
 
     comparison = build_comparison(result_a, result_b)
     token = uuid.uuid4().hex
