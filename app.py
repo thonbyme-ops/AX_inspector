@@ -25,6 +25,7 @@ from hr_cost_extractor import (
     CATEGORY_ORDER,
     CATEGORY_LABELS,
 )
+from attendance_cross_check import CROSS_HEADERS, build_cross_check_workbook, cross_check
 from labor_ledger_extractor import build_labor_template_workbook, parse_labor_ledger
 from settlement_pdf_extractor import extract_settlement_pdf
 
@@ -446,12 +447,18 @@ def api_hr_cost_save(token):
 @login_required
 def api_labor_ledger_extract():
     """하도급사별 노무비 지급 명세서(양식 상이)를 공통 스키마로 정규화한다 (이슈 #5-3)."""
-    uploads = [f for f in (request.files.get("file_a"), request.files.get("file_b")) if f and f.filename]
+    uploads = [
+        f
+        for key in ("file_a", "file_b")
+        for f in request.files.getlist(key)
+        if f and f.filename
+    ]
     if not uploads:
         return jsonify({"error": "노무비 지급 명세서 엑셀을 최소 한 개 업로드해주세요."}), 400
 
     saved_paths = []
     attendance, summaries, filenames = [], [], []
+    premium, premium_files = [], []
     try:
         for f in uploads:
             filename = safe_original_filename(f.filename)
@@ -469,10 +476,23 @@ def api_labor_ledger_extract():
             path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}_{filename}")
             f.save(path)
             saved_paths.append(path)
-            filenames.append(filename)
+
+            # 어떤 자료인지 파일명이 아니라 내용으로 가른다 -- 노무비 명세서는
+            # 성명+일자별 공수 표가 있고, 보험료 원장/퇴직공제 신고는 그런 표가
+            # 없는 대신 기존 인건비 추출 양식에 걸린다.
             rows, people = parse_labor_ledger(path, filename)
-            attendance.extend(rows)
-            summaries.extend(people)
+            if people:
+                filenames.append(filename)
+                attendance.extend(rows)
+                summaries.extend(people)
+                continue
+            try:
+                records = extract_hr_costs(path, filename)
+            except Exception:
+                records = []
+            if records:
+                premium.extend(records)
+                premium_files.append(filename)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -487,20 +507,31 @@ def api_labor_ledger_extract():
                      "'노무비 지급 명세서' 시트가 포함된 파일인지 확인해주세요."
         }), 400
 
+    cross_rows, cross_reverse, cross_summary = ([], [], [])
+    if premium:
+        cross_rows, cross_reverse, cross_summary = cross_check(summaries, premium)
+
     token = uuid.uuid4().hex
     _LEDGER_RESULTS[token] = {
         "attendance": attendance,
         "summaries": summaries,
+        "cross": (cross_rows, cross_reverse, cross_summary),
         "created_at": time.time(),
     }
     html = render_template(
         "_labor_ledger_result.html",
         token=token,
         filenames=filenames,
+        premium_files=premium_files,
         summaries=sorted(summaries, key=lambda r: (r["company"] or "", r["year_month"] or "", r["person"] or "")),
         by_company=_ledger_by_company(summaries),
         attendance_count=len(attendance),
         needs_review_count=sum(1 for s in summaries if s["needs_review"]),
+        cross_rows=sorted(cross_rows, key=lambda r: (not r["needs_review"], r["company"] or "", r["year_month"] or "", r["person"] or "")),
+        cross_reverse=cross_reverse,
+        cross_summary=cross_summary,
+        cross_review_count=sum(1 for r in cross_rows if r["needs_review"]),
+        cross_headers=CROSS_HEADERS,
     )
     return jsonify({"html": html, "token": token})
 
@@ -534,6 +565,24 @@ def api_labor_ledger_template(token):
         buf,
         as_attachment=True,
         download_name="노무비_출역_표준양식.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.route("/api/labor_ledger/crosscheck/<token>")
+@login_required
+def api_labor_ledger_crosscheck(token):
+    record = _LEDGER_RESULTS.get(token)
+    if not record or not record.get("cross") or not record["cross"][0]:
+        abort(404, "대조 결과를 찾을 수 없습니다. 보험료 원장을 함께 올려 다시 시도해주세요.")
+    wb = build_cross_check_workbook(*record["cross"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name="출역_보험료_대조결과.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

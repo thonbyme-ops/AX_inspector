@@ -1,4 +1,5 @@
-const files = { a: null, b: null };
+// 슬롯마다 파일 목록(배열). 대조 모드는 한 슬롯에 여러 개가 들어올 수 있다.
+const files = { a: [], b: [] };
 let currentMode = "summary";
 let currentSubmode = "summary";
 
@@ -6,7 +7,10 @@ const MODE_LABELS = {
   summary: { a: "파일 A (예: 검사요청서)", b: "파일 B (예: 검사보고서)" },
   evidence: { a: "파일 A: 노무비 지급 내역서", b: "파일 B: 퇴직공제부금 납부 신고 내역" },
   hrcost: { a: "파일 1: 보험료 납부_단위공사별 (엑셀) 또는 실적정산 (PDF)", b: "파일 2: 퇴직공제부금 납부 신고 내역 (엑셀) 또는 실적정산 (PDF)" },
-  ledger: { a: "파일 1: 노무비 지급 명세서 (엑셀)", b: "파일 2: 노무비 지급 명세서 (엑셀, 다른 업체/월)" },
+  ledger: {
+    a: "파일 1: 노무비 지급 명세서 (엑셀)",
+    b: "파일 2: 보험료 납부 원장 · 퇴직공제부금 신고 내역 (여러 개 선택 가능) — 넣으면 출역x보험료 대조까지",
+  },
 };
 const MODE_ENDPOINT = {
   summary: "/api/compare",
@@ -30,6 +34,8 @@ function applyModeUI() {
     currentMode === "evidence" ? ".pdf" : currentMode === "ledger" ? ".xlsx,.xlsm" : ".pdf,.xlsx,.xlsm,.xls";
   document.getElementById("input-a").accept = accept;
   document.getElementById("input-b").accept = accept;
+  // 대조에 쓸 보험료 원장과 퇴직공제 신고 내역을 한 슬롯에 같이 넣을 수 있게 한다.
+  document.getElementById("input-b").multiple = currentMode === "ledger";
   document.getElementById("compare-btn").textContent = MODE_BUTTON_LABEL[currentMode];
   updateCompareButton();
 }
@@ -98,16 +104,20 @@ function setupDropzone(slot) {
   const input = document.getElementById(`input-${slot}`);
   const nameLabel = document.getElementById(`filename-${slot}`);
 
-  const setFile = (file) => {
-    if (!file) return;
-    files[slot] = file;
-    nameLabel.textContent = file.name;
+  // 슬롯은 항상 배열로 들고 있는다 -- 노무비x보험료 대조는 보험료 원장과 퇴직공제
+  // 신고 내역을 같이 올려야 해서 한 슬롯에 여러 개가 들어올 수 있다(ledger 모드에서만
+  // input에 multiple을 켠다). 다른 모드는 1개만 들어와 기존 동작과 같다.
+  const setFile = (fileList) => {
+    const picked = Array.from(fileList || []).filter(Boolean);
+    if (!picked.length) return;
+    files[slot] = picked;
+    nameLabel.textContent = picked.map((f) => f.name).join(", ");
     zone.classList.add("has-file");
     updateCompareButton();
   };
 
   zone.addEventListener("click", () => input.click());
-  input.addEventListener("change", (e) => setFile(e.target.files[0]));
+  input.addEventListener("change", (e) => setFile(e.target.files));
 
   zone.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -117,12 +127,16 @@ function setupDropzone(slot) {
   zone.addEventListener("drop", (e) => {
     e.preventDefault();
     zone.classList.remove("dragover");
-    if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) setFile(e.dataTransfer.files);
   });
 }
 
+const hasFiles = (slot) => !!(files[slot] && files[slot].length);
+
 function updateCompareButton() {
-  const ready = SINGLE_FILE_MODES.has(currentMode) ? !!(files.a || files.b) : !!(files.a && files.b);
+  const ready = SINGLE_FILE_MODES.has(currentMode)
+    ? hasFiles("a") || hasFiles("b")
+    : hasFiles("a") && hasFiles("b");
   document.getElementById("compare-btn").disabled = !ready;
 }
 
@@ -133,8 +147,9 @@ function setStatus(msg, isError) {
 }
 
 async function runCompare() {
-  const hasPdf = (files.a && files.a.name.toLowerCase().endsWith(".pdf")) ||
-    (files.b && files.b.name.toLowerCase().endsWith(".pdf"));
+  const hasPdf = ["a", "b"].some((slot) =>
+    (files[slot] || []).some((f) => f.name.toLowerCase().endsWith(".pdf"))
+  );
   setStatus(
     currentMode === "hrcost" && hasPdf
       ? "업로드 및 OCR 추출 중... (PDF는 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다)"
@@ -143,8 +158,9 @@ async function runCompare() {
   document.getElementById("compare-btn").disabled = true;
 
   const form = new FormData();
-  if (files.a) form.append("file_a", files.a);
-  if (files.b) form.append("file_b", files.b);
+  ["a", "b"].forEach((slot) => {
+    (files[slot] || []).forEach((file) => form.append(`file_${slot}`, file));
+  });
 
   const endpoint = MODE_ENDPOINT[currentMode];
   try {

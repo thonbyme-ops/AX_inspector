@@ -153,9 +153,35 @@ def _parse_retirement_sheet(ws, sheet_year_month):
                 "year_month": year_month or sheet_year_month,
                 "category": "retirement",
                 "amount": amount,
+                # 아래 두 개는 집계에는 쓰이지 않지만 노무비 출역과 대조할 때 필요하다
+                # (이슈 #5-5): 퇴직공제부금은 근로일수 비례라 노무비 출역일수와 직접
+                # 맞춰볼 수 있는 유일한 비목이고, 생년월일이 있어 동명이인을 가른다.
+                "birth6": _birth6(row[2] if len(row) > 2 else None),
+                "workdays": _to_number(row[4] if len(row) > 4 else None),
             }
         )
     return records
+
+
+BIRTH6_DOTTED_RE = re.compile(r"^(\d{2})\.(\d{2})\.(\d{2})$")
+
+
+def _birth6(value):
+    """퇴직공제 신고 엑셀의 생년월일 표기("85.06.17")를 주민번호 앞 6자리로 맞춘다
+    -- 노무비 명세서에서 뽑은 birth6와 같은 형식이라 그대로 매칭 키가 된다."""
+    m = BIRTH6_DOTTED_RE.match(str(value or "").strip())
+    return "".join(m.groups()) if m else None
+
+
+def _to_number(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).strip().replace(",", ""))
+    except ValueError:
+        return None
 
 
 def extract_hr_costs(path, filename):

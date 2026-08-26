@@ -23,6 +23,9 @@
 
   <div class="actions">
     <a href="{{ url_for('api_labor_ledger_template', token=token) }}"><button type="button">표준 양식 엑셀로 내보내기</button></a>
+    {% if cross_rows %}
+    <a href="{{ url_for('api_labor_ledger_crosscheck', token=token) }}"><button type="button" class="btn-secondary">출역×보험료 대조결과 엑셀</button></a>
+    {% endif %}
   </div>
 
   <h3>업체 · 월별 집계</h3>
@@ -93,4 +96,114 @@
       </tbody>
     </table>
   </div>
+
+  {% if cross_rows %}
+  <h3>출역 × 보험료 대조 (이슈 #5-5)</h3>
+  <p class="mode-desc">
+    대조 자료: {{ premium_files|join(', ') }}.
+    담당자 의견 5번은 "실 출입기록으로 각종 보험료와 비교"였는데 <strong>출입기록 엑셀 샘플이 아직 없어</strong>
+    그 자리에 위 노무비 출역 데이터를 넣었습니다. 출입기록이 들어오면 같은 대조 로직에 소스만 추가하면 됩니다.
+  </p>
+  <p class="mode-desc">
+    건강 · 장기요양은 가입/해지가 차월에 반영되고 하도급사 신고 지연도 겹쳐 한 달씩 어긋나는 게 정상 범위라,
+    당월 → 차월 → 전월 순으로 찾아 <strong>어느 달에 잡혔는지를 그대로 표시</strong>합니다.
+    국민연금 60세 이상 적용제외와 월 8일 미만 적용제외는 "참고"로 내려 확인 대상에서 제외했습니다.
+    퇴직공제부금은 근로일수 비례라 출역일수와 직접 비교하되, 같은 업체 · 같은 달에서 다수가 똑같이 어긋나면
+    그 업체의 신고 규칙 차이로 보고 <strong>업체공통편차</strong>를 기준선으로 삼습니다.
+  </p>
+  <div class="evidence-summary">
+    대조 {{ cross_rows|length }}명 · <strong>확인필요 {{ cross_review_count }}명</strong>
+    · 보험료만 존재 {{ cross_reverse|length }}명
+  </div>
+
+  <h4>업체 · 월별 판정 요약</h4>
+  <div class="table-scroll">
+    <table class="cmp-table hr-cost-table sortable-table" id="table-cross-summary">
+      <thead>
+        <tr>
+          <th class="label-cell sortable" data-type="text">업체명</th>
+          <th class="label-cell sortable" data-type="text">연월</th>
+          <th class="sortable" data-type="number">인원</th>
+          <th class="sortable" data-type="number">정상</th>
+          <th class="sortable" data-type="number">확인필요</th>
+          <th class="sortable" data-type="number">차월반영 추정</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in cross_summary %}
+        <tr>
+          <td class="label-cell">{{ row.company }}</td>
+          <td class="label-cell">{{ row.year_month }}</td>
+          <td>{{ row.people }}</td>
+          <td>{{ row['정상'] }}</td>
+          <td>{{ row['확인필요'] }}</td>
+          <td>{{ row['차월반영_추정'] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h4>인별 대조 (확인필요 먼저)</h4>
+  <input type="text" class="table-filter" data-target="table-cross" placeholder="업체명 · 성명 · 판정 내용 검색">
+  <div class="table-scroll table-scroll-tall">
+    <table class="cmp-table hr-cost-table sortable-table" id="table-cross">
+      <thead>
+        <tr>
+          {% for label, _key in cross_headers %}
+          <th class="sortable {% if loop.index <= 5 %}label-cell{% endif %}" data-type="{{ 'number' if label in ['출역일수','총공수','퇴직공제 근로일수','일수차이','업체공통편차','실지급액','연령'] else 'text' }}">{{ label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in cross_rows %}
+        <tr {% if row.needs_review %}class="row-review"{% endif %}>
+          {% for _label, key in cross_headers %}
+          <td {% if loop.index <= 5 %}class="label-cell"{% endif %}>
+            {%- set v = row.get(key) -%}
+            {%- if v is none -%}{%- elif v is sameas true -%}예{%- elif v is sameas false -%}{%- else -%}{{ v }}{%- endif -%}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if cross_reverse %}
+  <h4>보험료만 존재 ({{ cross_reverse|length }}명) — 노무비 명세서에 없는 사람</h4>
+  <p class="mode-desc">
+    노무비 명세서를 제출한 업체 · 월에 한해, 보험료는 부과됐는데 명세서에 없는 사람입니다.
+    ⚠ 금액이 음수인 행은 정산 · 환급 정정분이라 인력 누락이 아닙니다.
+  </p>
+  <div class="table-scroll">
+    <table class="cmp-table hr-cost-table sortable-table" id="table-cross-ghost">
+      <thead>
+        <tr>
+          <th class="label-cell sortable" data-type="text">업체명</th>
+          <th class="label-cell sortable" data-type="text">연월</th>
+          <th class="label-cell sortable" data-type="text">성명</th>
+          <th class="sortable" data-type="number">건강보험료</th>
+          <th class="sortable" data-type="number">장기요양보험료</th>
+          <th class="sortable" data-type="number">연금보험료</th>
+          <th class="sortable" data-type="number">퇴직공제부금</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in cross_reverse %}
+        <tr>
+          <td class="label-cell">{{ row.company }}</td>
+          <td class="label-cell">{{ row.year_month }}</td>
+          <td class="label-cell">{{ row.person }}</td>
+          <td>{{ '{:,}'.format(row.health) if row.health else '' }}</td>
+          <td>{{ '{:,}'.format(row.longterm) if row.longterm else '' }}</td>
+          <td>{{ '{:,}'.format(row.pension) if row.pension else '' }}</td>
+          <td>{{ '{:,}'.format(row.retirement) if row.retirement else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
 </div>
