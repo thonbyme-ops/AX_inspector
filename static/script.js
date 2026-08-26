@@ -146,15 +146,57 @@ function setStatus(msg, isError) {
   el.classList.toggle("error", !!isError);
 }
 
+const MB = 1024 * 1024;
+const maxUploadBytes = () => parseInt(document.body.dataset.maxUploadBytes || "0", 10);
+const totalUploadBytes = () =>
+  ["a", "b"].reduce((sum, slot) => sum + (files[slot] || []).reduce((s, f) => s + f.size, 0), 0);
+
+// 오래 걸리는 추출(스캔본 OCR은 수십 분)에 경과 시간을 보여준다. 이게 없으면
+// 진행 중인지 멈춘 것인지 구분할 수 없어 사용자가 멈춘 것으로 오해한다.
+let progressTimer = null;
+
+function startProgress(baseMessage) {
+  const startedAt = Date.now();
+  const tick = () => {
+    const sec = Math.floor((Date.now() - startedAt) / 1000);
+    const stamp = sec < 60 ? `${sec}초 경과` : `${Math.floor(sec / 60)}분 ${sec % 60}초 경과`;
+    setStatus(`${baseMessage} (${stamp})`);
+  };
+  tick();
+  progressTimer = setInterval(tick, 1000);
+}
+
+function stopProgress() {
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = null;
+}
+
 async function runCompare() {
   const hasPdf = ["a", "b"].some((slot) =>
     (files[slot] || []).some((f) => f.name.toLowerCase().endsWith(".pdf"))
   );
-  setStatus(
-    currentMode === "hrcost" && hasPdf
-      ? "업로드 및 OCR 추출 중... (PDF는 페이지 수에 따라 수 분~1시간 이상 걸릴 수 있습니다)"
-      : "업로드 및 추출 중..."
-  );
+
+  // 보내기 전에 용량을 확인한다. 상한을 넘긴 요청은 서버가 본문을 받지 않고 끊어서
+  // 브라우저가 응답을 받지 못하고 "업로드 중"에서 매달린다(실측 재현) -- 그래서
+  // 아예 보내지 않고 여기서 알려주는 게 유일하게 확실한 방법이다.
+  const limit = maxUploadBytes();
+  const total = totalUploadBytes();
+  if (limit && total > limit) {
+    setStatus(
+      `선택한 파일 합계가 ${(total / MB).toFixed(1)}MB로 업로드 상한 ` +
+        `${Math.round(limit / MB)}MB를 넘습니다. 파일을 나눠서 올려주세요.`,
+      true
+    );
+    return;
+  }
+
+  const base =
+    hasPdf && (currentMode === "hrcost" || currentMode === "ledger" || currentMode === "evidence")
+      ? "업로드 및 OCR 추출 중... 스캔본 PDF는 페이지 수에 따라 수 분~1시간 이상 걸립니다"
+      : hasPdf
+      ? "업로드 및 추출 중... 스캔본 PDF는 OCR이 필요해 오래 걸릴 수 있습니다"
+      : "업로드 및 추출 중...";
+  startProgress(base);
   document.getElementById("compare-btn").disabled = true;
 
   const form = new FormData();
@@ -165,12 +207,25 @@ async function runCompare() {
   const endpoint = MODE_ENDPOINT[currentMode];
   try {
     const res = await fetch(endpoint, { method: "POST", body: form });
-    const data = await res.json();
+    // 오류 응답이 JSON이 아닐 수 있다(413 등은 서버 기본 HTML 페이지). 그 경우
+    // res.json()이 예외를 던져 실제 원인 대신 "네트워크 오류"만 보였다.
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      data = null;
+    }
     if (!res.ok) {
-      setStatus(data.error || "비교 중 오류가 발생했습니다.", true);
+      stopProgress();
+      const fallback =
+        res.status === 413
+          ? `업로드 용량 상한을 넘었습니다 (보낸 크기 ${(total / MB).toFixed(1)}MB).`
+          : `서버 오류가 발생했습니다 (HTTP ${res.status}).`;
+      setStatus((data && data.error) || fallback, true);
       updateCompareButton();
       return;
     }
+    stopProgress();
     document.getElementById("result-container").innerHTML = data.html;
     setStatus("완료");
     attachVerifyHandlers();
@@ -180,8 +235,15 @@ async function runCompare() {
     setupHrCostCategoryFilter();
     setupHrCostHistorySection();
   } catch (err) {
-    setStatus("네트워크 오류가 발생했습니다.", true);
+    stopProgress();
+    // 상한을 넘긴 업로드는 서버가 연결을 끊어 여기로 떨어지기도 한다.
+    const hint =
+      limit && total > limit * 0.9
+        ? ` 선택한 파일 합계가 ${(total / MB).toFixed(1)}MB로 업로드 상한에 가깝습니다 — 파일을 나눠 올려보세요.`
+        : "";
+    setStatus(`연결이 끊겼습니다. 업로드가 완료되지 못했습니다.${hint}`, true);
   } finally {
+    stopProgress();
     updateCompareButton();
   }
 }

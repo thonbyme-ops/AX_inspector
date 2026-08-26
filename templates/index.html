@@ -10,7 +10,7 @@
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style_mastt.css') }}">
 </head>
-<body>
+<body data-max-upload-bytes="{{ max_upload_bytes }}">
 <div class="app-shell">
   <aside class="sidebar">
     <div class="sidebar-brand">

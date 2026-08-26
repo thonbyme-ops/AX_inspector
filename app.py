@@ -35,7 +35,11 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 VERIFICATIONS_PATH = os.path.join(DATA_DIR, "verifications.json")
 SECRET_KEY_PATH = os.path.join(DATA_DIR, ".secret_key")
 ALLOWED_EXT = {"pdf", "xlsx", "xlsm", "xls"}
-MAX_CONTENT_LENGTH = 60 * 1024 * 1024
+# 실제 업무 파일이 크다 -- 실측: "기성고 검사 요청서.pdf" 47.5MB,
+# "06-03. 제20회 기성 실적정산(건강요양).pdf" 41.5MB, "06-04.(국민연금)" 29.1MB.
+# 두 개만 올려도 예전 상한 60MB를 넘어 413이 났고, 그때 Werkzeug는 본문을 받지 않고
+# 연결을 끊어서 브라우저에서는 "업로드 중"에서 그대로 멈춘 것처럼 보였다(실측 재현).
+MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "300")) * 1024 * 1024
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -59,6 +63,26 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["MAX_FORM_MEMORY_SIZE"] = MAX_CONTENT_LENGTH
 app.secret_key = _load_or_create_secret_key()
 db.init_db()
+
+
+@app.errorhandler(413)
+def handle_too_large(_e):
+    """업로드 용량 초과를 JSON으로 알려준다.
+
+    기본 413 응답은 HTML이라 프론트엔드의 `res.json()`이 예외를 던지고, 그 결과
+    실제 원인("파일이 너무 큼") 대신 "네트워크 오류"만 보였다. 게다가 Werkzeug는
+    상한을 넘으면 본문을 읽지 않고 끊어서 브라우저가 매달리기도 한다 -- 그래서
+    클라이언트에서 보내기 전에 크기를 먼저 확인하고(static/script.js), 여기서는
+    그래도 서버까지 닿은 경우에 대비한다.
+    """
+    limit_mb = MAX_CONTENT_LENGTH // (1024 * 1024)
+    message = (
+        f"업로드 용량 상한({limit_mb}MB)을 넘었습니다. 파일을 나눠 올리거나, "
+        f"서버를 MAX_UPLOAD_MB 환경변수로 더 크게 설정해주세요."
+    )
+    if request.path.startswith("/api/"):
+        return jsonify({"error": message}), 413
+    return message, 413
 
 
 def login_required(view):
@@ -243,7 +267,9 @@ def index():
     recent = sorted(verifications, key=lambda v: v.get("verified_at", 0), reverse=True)[:10]
     for v in recent:
         v["verified_at_display"] = datetime.fromtimestamp(v["verified_at"]).strftime("%Y-%m-%d %H:%M")
-    return render_template("index.html", stats=stats, recent=recent)
+    return render_template(
+        "index.html", stats=stats, recent=recent, max_upload_bytes=MAX_CONTENT_LENGTH
+    )
 
 
 @app.route("/api/compare", methods=["POST"])
