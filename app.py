@@ -23,6 +23,7 @@ from hr_cost_extractor import (
     aggregate_by_month,
     build_export_workbook,
     CATEGORY_ORDER,
+    CATEGORY_LABELS,
 )
 from settlement_pdf_extractor import extract_settlement_pdf
 
@@ -394,6 +395,8 @@ def api_hr_cost_extract():
         company_count=len({r["company"] for r in records}),
         record_count=len(records),
         pdf_stats=pdf_stats,
+        category_order=CATEGORY_ORDER,
+        category_labels=CATEGORY_LABELS,
     )
     return jsonify({"html": html, "token": token})
 
@@ -477,6 +480,8 @@ def api_history_compare():
         company=company,
         compare_rows=compare_rows,
         history_by_month=history_by_month,
+        category_order=CATEGORY_ORDER,
+        category_labels=CATEGORY_LABELS,
     )
     return jsonify({"html": html})
 

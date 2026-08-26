@@ -18,10 +18,14 @@ from extractor import clean_amount
 
 CATEGORY_LABELS = {
     "health": "건강보험료",
+    "longterm": "장기요양보험료",
     "pension": "연금보험료",
     "retirement": "퇴직공제부금",
 }
-CATEGORY_ORDER = ["health", "pension", "retirement"]
+# 건강보험과 장기요양보험은 공단 고지서에서 별도 컬럼으로 부과되는 별개 비목이다
+# -- 예전에는 건강보험 시트/PDF에서 앞쪽 컬럼(건강보험료)만 읽고 장기요양보험료를
+# 통째로 버리고 있었다(이슈 #5-1).
+CATEGORY_ORDER = ["health", "longterm", "pension", "retirement"]
 
 PREMIUM_SHEET_RE = re.compile(r"^(.+?)_(건강|연금)\(\s*([\d.]+)\s*\)\s*$")
 RETIREMENT_SHEET_RE = re.compile(r"^\s*(\d{2})[.\-](\d{2})\s*$")
@@ -104,6 +108,22 @@ def _parse_premium_sheet(ws, category, year_month):
                 "amount": amount,
             }
         )
+        # 건강 시트는 3번째 열이 건강보험료, 4번째 열이 장기요양보험료다
+        # (extract_compare._extract_excel_health와 같은 컬럼 배치). 장기요양은
+        # 별개 비목이라 따로 레코드를 만든다 -- 안 그러면 PDF 쪽만 이 비목을
+        # 갖게 돼 대조가 어긋난다.
+        if category == "health":
+            longterm = clean_amount(row[3]) if len(row) > 3 else None
+            if longterm is not None:
+                records.append(
+                    {
+                        "company": company,
+                        "person": str(name).strip(),
+                        "year_month": year_month,
+                        "category": "longterm",
+                        "amount": longterm,
+                    }
+                )
     return records
 
 
@@ -263,4 +283,44 @@ def build_export_workbook(records):
     for row in aggregate_by_month(records):
         ws4.append([row["year_month"], *[row[c] for c in CATEGORY_ORDER], row["total"]])
 
+    _append_raw_sheet(wb, records)
     return wb
+
+
+def _append_raw_sheet(wb, records):
+    """공단 PDF에서 좌표 기반으로 읽어낸 원본 항목을 그대로 담는 시트.
+
+    집계 시트는 비목별 금액만 남기지만, 담당자가 공단 고지서와 직접 눈으로
+    대조하려면 생년월일·고지액/납부액 구분·기준소득월액 같은 원본 컬럼이
+    필요하다(이슈 #5-1). 이 항목들은 확인서 서식에서만 나오므로(엑셀 원본이나
+    업체 자체 양식 PDF에는 없음) 해당 레코드가 하나도 없으면 시트를 만들지
+    않는다."""
+    detailed = [r for r in records if r.get("detail")]
+    if not detailed:
+        return
+
+    detail_keys = []
+    for r in detailed:
+        for key in r["detail"]:
+            if key not in detail_keys:
+                detail_keys.append(key)
+
+    ws = wb.create_sheet("원본항목")
+    ws.append(["업체명", "순번", "성명", "생년월일", "연월", "구분", "금액", *detail_keys, "확인필요"])
+    for r in sorted(
+        detailed,
+        key=lambda r: (r["company"] or "", r["year_month"] or "", r.get("seq") or 0),
+    ):
+        ws.append(
+            [
+                r["company"],
+                r.get("seq"),
+                r["person"],
+                r.get("birthdate"),
+                r["year_month"],
+                CATEGORY_LABELS.get(r["category"], r["category"]),
+                r["amount"],
+                *[r["detail"].get(k) for k in detail_keys],
+                "확인필요" if r.get("needs_review") else "",
+            ]
+        )

@@ -6,11 +6,13 @@
   </p>
   {% if pdf_stats %}
   <p class="ocr-warning">
-    ⚠ PDF는 스캔본 OCR 추출이라 완벽하지 않습니다. 성명 인식에 실패한 행은 "확인필요_..."로 표시되며(금액은
-    회사·월 합계에는 반영됨), 공단이 발급하는 "납부확인서" 서식(워터마크로 성명 인식이 사실상 불가능한 페이지)은
-    이번 버전에서 지원하지 않아 건너뜁니다. 같은 기간 데이터가 엑셀 원본에도 있다면 그쪽이 더 정확합니다.
+    ⚠ 공단이 발급한 "납부확인서/결정내역서" 서식은 컬럼 좌표 기반으로 정밀 추출하며(성명·생년월일·고지액/납부액
+    구분까지 읽어 엑셀 "원본항목" 시트에 담습니다), 업체가 자체 제출한 "납부 내역서" 서식은 스캔본 OCR로 읽어
+    완벽하지 않습니다. 성명 인식에 실패한 행은 "확인필요_..."로 표시되며 금액은 회사·월 합계에 반영됩니다.
     {% for s in pdf_stats %}
       <br>· {{ s.filename }}: 총 {{ s.total_pages }}페이지 중 {{ s.processed_pages }}페이지 처리, {{ s.skipped_pages }}페이지 건너뜀
+      {%- if s.confirmation_pages %} · 공단 확인서 정밀추출 {{ s.confirmation_pages }}페이지({{ s.confirmation_records }}건){% endif %}
+      {%- if s.confirmation_skipped %} · 정밀추출 미적용({{ s.confirmation_skipped }}) — 공단 EDI 전자발급 원본(네이티브 PDF)을 올리면 성명·생년월일·고지/납부액까지 정확히 추출됩니다{% endif %}
     {% endfor %}
   </p>
   {% endif %}
@@ -27,12 +29,26 @@
 
   <div class="category-filter">
     <label for="hr-cost-category-select">비교 항목 선택 (Ctrl/Shift+클릭으로 여러 개 선택)</label>
-    <select id="hr-cost-category-select" multiple size="3">
-      <option value="health" selected>건강보험료</option>
-      <option value="pension" selected>연금보험료</option>
-      <option value="retirement" selected>퇴직공제부금</option>
+    <select id="hr-cost-category-select" multiple size="{{ category_order|length }}">
+      {% for cat in category_order %}
+      <option value="{{ cat }}" selected>{{ category_labels[cat] }}</option>
+      {% endfor %}
     </select>
   </div>
+
+  {% macro category_headers() %}
+    {% for cat in category_order %}
+    <th class="sortable cat-col" data-type="number" data-cat="{{ cat }}">{{ category_labels[cat] }}</th>
+    {% endfor %}
+    <th class="sortable" data-type="number">합계(선택)</th>
+  {% endmacro %}
+
+  {% macro category_cells(row, mark_zero=false) %}
+    {% for cat in category_order %}
+    <td class="cat-col {{ 'cell-zero' if mark_zero and row[cat] == 0 }}" data-cat="{{ cat }}">{{ '{:,}'.format(row[cat]) }}</td>
+    {% endfor %}
+    <td class="sum-cell" {% for cat in category_order %}data-{{ cat }}="{{ row[cat] }}" {% endfor %}>{{ '{:,}'.format(row.total) }}</td>
+  {% endmacro %}
 
   <h3>업체별 구분 비교</h3>
   <input type="text" class="table-filter" data-target="table-by-company" placeholder="업체명 검색">
@@ -41,20 +57,14 @@
       <thead>
         <tr>
           <th class="label-cell sortable" data-type="text">업체명</th>
-          <th class="sortable cat-col" data-type="number" data-cat="health">건강보험료</th>
-          <th class="sortable cat-col" data-type="number" data-cat="pension">연금보험료</th>
-          <th class="sortable cat-col" data-type="number" data-cat="retirement">퇴직공제부금</th>
-          <th class="sortable" data-type="number">합계(선택)</th>
+          {{ category_headers() }}
         </tr>
       </thead>
       <tbody>
         {% for row in by_company %}
         <tr>
           <td class="label-cell">{{ row.company }}</td>
-          <td class="cat-col" data-cat="health">{{ '{:,}'.format(row.health) }}</td>
-          <td class="cat-col" data-cat="pension">{{ '{:,}'.format(row.pension) }}</td>
-          <td class="cat-col" data-cat="retirement">{{ '{:,}'.format(row.retirement) }}</td>
-          <td class="sum-cell" data-health="{{ row.health }}" data-pension="{{ row.pension }}" data-retirement="{{ row.retirement }}">{{ '{:,}'.format(row.total) }}</td>
+          {{ category_cells(row) }}
         </tr>
         {% endfor %}
       </tbody>
@@ -67,20 +77,14 @@
       <thead>
         <tr>
           <th class="label-cell sortable" data-type="text">연월</th>
-          <th class="sortable cat-col" data-type="number" data-cat="health">건강보험료</th>
-          <th class="sortable cat-col" data-type="number" data-cat="pension">연금보험료</th>
-          <th class="sortable cat-col" data-type="number" data-cat="retirement">퇴직공제부금</th>
-          <th class="sortable" data-type="number">합계(선택)</th>
+          {{ category_headers() }}
         </tr>
       </thead>
       <tbody>
         {% for row in by_month %}
         <tr>
           <td class="label-cell">{{ row.year_month }}</td>
-          <td class="cat-col" data-cat="health">{{ '{:,}'.format(row.health) }}</td>
-          <td class="cat-col" data-cat="pension">{{ '{:,}'.format(row.pension) }}</td>
-          <td class="cat-col" data-cat="retirement">{{ '{:,}'.format(row.retirement) }}</td>
-          <td class="sum-cell" data-health="{{ row.health }}" data-pension="{{ row.pension }}" data-retirement="{{ row.retirement }}">{{ '{:,}'.format(row.total) }}</td>
+          {{ category_cells(row) }}
         </tr>
         {% endfor %}
       </tbody>
@@ -95,10 +99,7 @@
         <tr>
           <th class="label-cell sortable" data-type="text">업체명</th>
           <th class="label-cell sortable" data-type="text">성명</th>
-          <th class="sortable cat-col" data-type="number" data-cat="health">건강보험료</th>
-          <th class="sortable cat-col" data-type="number" data-cat="pension">연금보험료</th>
-          <th class="sortable cat-col" data-type="number" data-cat="retirement">퇴직공제부금</th>
-          <th class="sortable" data-type="number">합계(선택)</th>
+          {{ category_headers() }}
         </tr>
       </thead>
       <tbody>
@@ -106,10 +107,7 @@
         <tr>
           <td class="label-cell">{{ row.company }}</td>
           <td class="label-cell">{{ row.person }}</td>
-          <td class="cat-col {{ 'cell-zero' if row.health == 0 }}" data-cat="health">{{ '{:,}'.format(row.health) }}</td>
-          <td class="cat-col {{ 'cell-zero' if row.pension == 0 }}" data-cat="pension">{{ '{:,}'.format(row.pension) }}</td>
-          <td class="cat-col {{ 'cell-zero' if row.retirement == 0 }}" data-cat="retirement">{{ '{:,}'.format(row.retirement) }}</td>
-          <td class="sum-cell" data-health="{{ row.health }}" data-pension="{{ row.pension }}" data-retirement="{{ row.retirement }}">{{ '{:,}'.format(row.total) }}</td>
+          {{ category_cells(row, mark_zero=true) }}
         </tr>
         {% endfor %}
       </tbody>

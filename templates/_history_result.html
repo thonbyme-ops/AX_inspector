@@ -8,9 +8,9 @@
       <thead>
         <tr>
           <th class="label-cell sortable" data-type="text">연월</th>
-          <th class="sortable" data-type="number">건강보험료</th>
-          <th class="sortable" data-type="number">연금보험료</th>
-          <th class="sortable" data-type="number">퇴직공제부금</th>
+          {% for cat in category_order %}
+          <th class="sortable" data-type="number">{{ category_labels[cat] }}</th>
+          {% endfor %}
           <th class="sortable" data-type="number">합계</th>
         </tr>
       </thead>
@@ -18,9 +18,9 @@
         {% for row in compare_rows %}
         <tr>
           <td class="label-cell">{{ row.year_month }}</td>
-          <td>{{ '{:,}'.format(row.health) }}</td>
-          <td>{{ '{:,}'.format(row.pension) }}</td>
-          <td>{{ '{:,}'.format(row.retirement) }}</td>
+          {% for cat in category_order %}
+          <td>{{ '{:,}'.format(row[cat]) }}</td>
+          {% endfor %}
           <td>{{ '{:,}'.format(row.total) }}</td>
         </tr>
         {% endfor %}

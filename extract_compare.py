@@ -372,6 +372,30 @@ def _ocr_cell_amount(im, x0_pt, x1_pt, y0_pt, y1_pt, scale, signed=True):
     return None
 
 
+def _ocr_cell_text(im, x0_pt, x1_pt, y0_pt, y1_pt, scale, lang="kor+eng"):
+    """텍스트 컬럼(성명/생년월일) 셀 하나를 잘라 한글 OCR한다. 금액과 달리
+    화이트리스트를 못 쓰므로 정확도가 낮고, 이 서식의 성명 칸은 발급 확인용
+    워터마크가 겹치는 자리라 아예 안 읽히는 경우도 있다(모듈 상단 주석 참고)
+    -- 실패하면 빈 문자열을 돌려주고 호출부가 금액만으로 진행하게 둔다."""
+    pad = 2
+    box = (
+        int((x0_pt + pad) * scale),
+        int((y0_pt + pad) * scale),
+        int((x1_pt - pad) * scale),
+        int((y1_pt - pad) * scale),
+    )
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return ""
+    crop = im.crop(box)
+    crop = crop.resize((crop.width * 2, crop.height * 2), Image.LANCZOS)
+    try:
+        return " ".join(
+            pytesseract.image_to_string(crop, lang=lang, config="--psm 6").split()
+        )
+    except Exception:
+        return ""
+
+
 def _ocr_extract_group_records_grid(page, cfg, source_label, prev_seq=None, dpi=300):
     """스캔본 전용 대체 추출기. 실측(광영건설): 워터마크/음영이 겹친 행에서는
     `page.extract_words()`/`_ocr_words_for_page`의 단어 단위 OCR이 그 행만
@@ -428,8 +452,18 @@ def _ocr_extract_group_records_grid(page, cfg, source_label, prev_seq=None, dpi=
         )
         if seq_no is not None:
             prev_seq = seq_no
+        texts = {
+            key: _ocr_cell_text(im, tx0, tx1, y0, y1, scale)
+            for key, (tx0, tx1) in cfg.get("text_columns", {}).items()
+        }
         records.append(
-            {"순번_pdf": seq_no, **values, "needs_review": needs_review, "출처파일": source_label}
+            {
+                "순번_pdf": seq_no,
+                **values,
+                **texts,
+                "needs_review": needs_review,
+                "출처파일": source_label,
+            }
         )
     return records, prev_seq
 
@@ -521,6 +555,16 @@ def _extract_group_records(pdf, page_indices, source_label, cfg, apply_noise_fil
                 cell_text = " ".join(w["text"] for w in cell_words)
                 values[key] = _first_amount_safe(cell_text)
 
+            # 텍스트 컬럼(성명/생년월일 등)은 대조에 쓰이지 않아 기존 doc_type
+            # 설정에는 없다 -- PDF만 보고 엑셀을 만들어야 하는 호출부(웹 추출)가
+            # cfg에 "text_columns"를 얹었을 때만 동작한다(없으면 무영향).
+            texts = {}
+            for key, (tx0, tx1) in cfg.get("text_columns", {}).items():
+                cell_words = _words_in_box(words, tx0, tx1, y0, y1)
+                texts[key] = " ".join(
+                    w["text"] for w in sorted(cell_words, key=lambda w: (w["top"], w["x0"]))
+                )
+
             all_values_empty = all(v is None for v in values.values())
             if seq_no is None and all_values_empty:
                 consecutive_empty += 1
@@ -547,6 +591,7 @@ def _extract_group_records(pdf, page_indices, source_label, cfg, apply_noise_fil
                 {
                     "순번_pdf": seq_no,
                     **values,
+                    **texts,
                     "needs_review": needs_review,
                     "출처파일": source_label,
                 }

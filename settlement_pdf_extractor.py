@@ -38,6 +38,7 @@ import pymupdf
 import pytesseract
 from PIL import Image
 
+from confirmation_extractor import extract_confirmation
 from extractor import clean_amount
 from hr_cost_extractor import _normalize_company
 
@@ -258,8 +259,13 @@ def _drop_trailing_total_row(rows, tolerance=0.01):
     return rows
 
 
-def extract_premium_settlement(pdf_path, category, max_pages=None):
+def extract_premium_settlement(pdf_path, category, max_pages=None, skip_pages=None):
     """category: "health" 또는 "pension". 반환은 hr_cost_extractor와 동일한 레코드 스키마.
+
+    skip_pages는 이미 다른 파서가 처리한 페이지 인덱스 집합이다 -- 공단 발급
+    확인서 서식은 `confirmation_extractor`가 좌표 기반으로 먼저 정확하게
+    읽으므로(모듈 상단 "지원하지 않는 서식" 주석 참고), 그 페이지들은 여기서
+    다시 읽지 않고 건너뛴다(skipped_pages 집계에도 넣지 않는다).
 
     회사마다 서식이 다르다(예: "개인별 납부확인서", "결정내역서", "가입자명부" 등
     제목이 제각각이라 특정 문구로 표 페이지를 판별할 수 없다). 그래서 특정
@@ -285,11 +291,14 @@ def extract_premium_settlement(pdf_path, category, max_pages=None):
     last_company = None
     last_year_month = None
     last_amount_index = 0
+    skip_pages = skip_pages or set()
 
     with pdfplumber.open(pdf_path) as pdf:
         n_pages = len(pdf.pages) if max_pages is None else min(len(pdf.pages), max_pages)
         try:
             for i in range(n_pages):
+                if i in skip_pages:
+                    continue
                 try:
                     text = _native_page_text(pdf.pages[i])
                     if text is None:
@@ -414,14 +423,28 @@ def _detect_category_from_content(path, max_pages=2):
     return None
 
 
+def _extract_premium(path, category):
+    """한 PDF 안에 공단 발급 "확인서" 서식과 업체 자체 "납부 내역서" 서식이
+    섞여 있을 수 있으므로(실측: 실적정산철), 좌표 기반 정밀 파서를 먼저 돌려
+    확인서 페이지를 가져가고 나머지 페이지만 줄 단위 파서로 넘긴다."""
+    try:
+        conf_records, consumed, conf_stats = extract_confirmation(path, category)
+    except Exception:
+        # 정밀 파서가 이 PDF 서식을 못 다루면 기존 경로만으로 진행한다.
+        conf_records, consumed, conf_stats = [], set(), {}
+
+    records, stats = extract_premium_settlement(path, category, skip_pages=consumed)
+    return [*conf_records, *records], {**stats, **conf_stats}
+
+
 def extract_settlement_pdf(path, filename):
     """파일명 힌트로 어떤 실적정산 PDF인지 판별해서 추출한다. 힌트가 없으면
     본문 내용으로 판별한다(예: 업체 자체 양식이라 파일명에 문서 종류가 안 적힌 경우)."""
     name = filename or ""
     if "건강" in name:
-        return extract_premium_settlement(path, "health")
+        return _extract_premium(path, "health")
     if "연금" in name:
-        return extract_premium_settlement(path, "pension")
+        return _extract_premium(path, "pension")
     if "퇴직" in name:
         return extract_retirement_settlement(path)
 
@@ -429,7 +452,7 @@ def extract_settlement_pdf(path, filename):
     if category == "retirement":
         return extract_retirement_settlement(path)
     if category:
-        return extract_premium_settlement(path, category)
+        return _extract_premium(path, category)
     raise ValueError(
         f"파일명/본문으로 문서 종류를 판별할 수 없습니다: {filename} "
         "(건강·연금·퇴직공제 관련 문서인지 확인해주세요.)"
