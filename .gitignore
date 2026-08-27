@@ -4,9 +4,14 @@ __pycache__/
 .env
 uploads/*
 !uploads/.gitkeep
-data/*.json
-data/*.db
-data/.secret_key
+# 확장자별로 막으면 새 파일 형식이 생길 때마다 구멍이 난다 -- 실제로 SQLite가
+# WAL 모드로 돌면 ax_inspector.db-wal / -shm이 걸리지 않았다. app.py와 db.py가
+# os.makedirs로 이 디렉터리를 만들므로 통째로 무시해도 클론 후 동작에 문제없다.
+data/
+
+# 실행 산출물. 재실행할 때마다 diff가 생기는 자리라 추적하지 않는다.
+result/
+result_v4_daea/
 sample/
 test/
 scratch_*
