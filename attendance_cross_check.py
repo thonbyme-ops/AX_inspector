@@ -28,12 +28,35 @@
 (2) 최빈 편차에서 벗어난 행만 `일수차이_확인필요`로 올린다.
 이러면 "규칙 차이"와 "개별 이상"이 섞이지 않는다.
 
-## 차월 반영 처리
+## 차월 반영 처리 (이슈 #8)
 
-담당자가 지적한 대로 건강·장기요양은 당월에 안 잡히는 게 정상일 수 있다. 그래서 비목별로
-당월 -> 차월(M+1) -> 전월(M-1) 순으로 찾아보고 어디서 잡혔는지를 그대로 표시한다
-(`당월` / `차월(2026-05)` / `전월(2026-03)` / `없음`). 건강·장기요양이 인접월에서 잡히면
-`차월반영_추정`으로, 아무 달에도 없으면 `미부과_확인필요`로 분류한다.
+담당자 의견은 두 가지 현상을 말하고 있고 **둘 다 방향이 후행(M+1)이다**:
+가입/해지가 차월에 반영되는 것, 그리고 하도급사 신고가 늦어져 한 달씩 밀리는 것.
+그래서 당월 -> 차월(M+1) 순으로만 찾아 채택하고, 어디서 잡혔는지 그대로 표시한다
+(`당월` / `차월(2026-05)` / `없음`).
+
+**전월(M-1)은 채택하지 않는다.** 담당자가 말한 어떤 현상에도 해당하지 않을뿐더러,
+실측해보니 전월 금액을 당월 것으로 끌어와 **진짜 미신고를 덮고 있었다**:
+
+| 전월 히트 | 건수 | 실제 정체 |
+|---|---|---|
+| 퇴직공제 | 11 | 신보 26.03 출역 24~25일인데 **26.03 신고가 없고** 26.02 금액(117,000=18일분)이 붙었다 |
+| 국민연금 | 9 | 신보·신한 출역 1~3일에 26.02 전액(304,000 등)이 붙었다 -- 2월에도 일한 사람 |
+| 건강·장기요양 | 각 4 | 3건이 **음수**(-230,080 등 환급·정정분), 1건은 0원 |
+
+전월에 금액이 있다는 사실 자체는 담당자에게 필요한 단서라 지우지 않고
+`전월부과_수동확인(비목 연월 금액)`으로 판정에 남긴다 -- 다만 **그 사람의 당월
+부과액으로는 쓰지 않는다**.
+
+## 판정을 3단계로 나눈다 -- 담당자가 "수동 검사"할 자리를 만든다
+
+담당자는 차월 반영·신고 지연을 "수동 검사해야 함"이라고 했지, 정상이라고 하지 않았다.
+그런데 참고(note)로 내리면 정상 인원에 섞여 검사할 목록이 사라진다. 그래서:
+
+- **확인필요**: 미부과, 일수차이, 증빙대비 원장불일치, 동명이인 -- 자료가 어긋난 건
+- **수동검사**: 차월반영(건강·장기요양 M+1), 신고지연(연금·퇴직공제 M+1), 전월부과
+  -- 담당자가 가입/해지·신고 시점을 직접 봐야 판단되는 건
+- **정상/참고**: 연금 60세 적용제외, 월 8일 미만 적용제외
 """
 import re
 
@@ -51,9 +74,9 @@ COMPANY_ALIASES = {
 }
 LEGAL_FORM_RE = re.compile(r"(주식회사|\(주\)|㈜|\(유\)|유한회사|\(사\))")
 
-# 건강·장기요양은 가입/해지가 차월에 반영되고 하도급사 신고 지연도 겹쳐 한 달씩
-# 어긋나는 게 정상 범위다(담당자 의견). 연금·퇴직공제는 당월 기준이라 인접월에서
-# 잡히면 그대로 확인 대상으로 올린다.
+# 건강·장기요양은 가입/해지가 차월에 반영되는 게 정상 범위다(담당자 의견). 연금·
+# 퇴직공제는 당월 기준이라 차월에서 잡히면 신고 지연 쪽이다. 둘 다 담당자가 직접
+# 가입/해지·신고 시점을 봐야 판단되므로 "수동검사"로 묶되, 사유는 구분해 표시한다.
 LAGGING_CATEGORIES = {"health", "longterm"}
 CHECK_CATEGORIES = ["health", "longterm", "pension", "retirement"]
 
@@ -163,28 +186,55 @@ def _keys_for(company, person, birth6, category, year_month):
     )
 
 
-def _lookup(index, company, person, birth6, category, year_month):
-    """당월 -> 차월 -> 전월 순으로 찾아 (표시문구, 금액, 잡힌 연월, 조회범위, 소스,
-    성명모호 여부)를 돌려준다. 같은 달 안에서는 공단 증빙을 자체 원장보다 우선한다.
+def _probe(index, company, person, birth6, category, target):
+    """한 달을 뒤져 (금액, 조회범위, 소스, 성명모호 여부)를 돌려준다.
 
     금액 0원은 "부과 안 됨"이 아니라 "그 달에 0원으로 부과됨"이다(실측: 대아이앤씨
     26.04 원장에 0원 행이 있다). 그래서 키 존재 여부로 판단한다 -- 값이 0일 때
     다음 달을 뒤지면 엉뚱한 달 금액을 그 사람 것으로 붙이게 된다.
     """
-    for delta, label in ((0, "당월"), (1, "차월"), (-1, "전월")):
+    for source in SOURCE_PRIORITY:
+        for scope, key in _keys_for(company, person, birth6, category, target):
+            if key is None or key not in index["sources"][source][scope][0]:
+                continue
+            amount = index["sources"][source][scope][0][key]
+            name_key = (company, person, target, category)
+            ambiguous = scope == "name" and name_key in index["ambiguous_names"]
+            return amount, scope, source, ambiguous
+    return None, None, None, False
+
+
+def _lookup(index, company, person, birth6, category, year_month):
+    """당월 -> 차월 순으로 찾아 (표시문구, 금액, 잡힌 연월, 조회범위, 소스,
+    성명모호 여부)를 돌려준다. 같은 달 안에서는 공단 증빙을 자체 원장보다 우선한다.
+
+    **전월(M-1)은 뒤지지 않는다** -- 담당자가 말한 차월 반영·신고 지연은 둘 다
+    후행이고, 전월에 잡히는 건 그 사람이 전월에도 일했다는 뜻일 가능성이 훨씬
+    크다(모듈 상단 실측 표). 전월 금액은 `_prior_hit`으로 근거로만 따로 본다.
+    """
+    for delta, label in ((0, "당월"), (1, "차월")):
         target = _shift_month(year_month, delta)
-        for source in SOURCE_PRIORITY:
-            for scope, key in _keys_for(company, person, birth6, category, target):
-                if key is None or key not in index["sources"][source][scope][0]:
-                    continue
-                amount = index["sources"][source][scope][0][key]
-                text = label if delta == 0 else f"{label}({target})"
-                if amount == 0:
-                    text += "(0원)"
-                name_key = (company, person, target, category)
-                ambiguous = scope == "name" and name_key in index["ambiguous_names"]
-                return text, amount, target, scope, source, ambiguous
+        amount, scope, source, ambiguous = _probe(
+            index, company, person, birth6, category, target
+        )
+        if scope is None:
+            continue
+        text = label if delta == 0 else f"{label}({target})"
+        if amount == 0:
+            text += "(0원)"
+        return text, amount, target, scope, source, ambiguous
     return "없음", None, None, None, None, False
+
+
+def _prior_hit(index, company, person, birth6, category, year_month):
+    """전월(M-1)에 금액이 있는지만 확인해 (연월, 금액)을 돌려준다 -- 채택하지 않고
+    담당자가 볼 단서로만 쓴다. 전월 근무분일 수도, 당월 미신고일 수도 있는데
+    자료만으로는 가릴 수 없어서 판단은 사람에게 넘긴다."""
+    target = _shift_month(year_month, -1)
+    amount, scope, _source, _ambiguous = _probe(
+        index, company, person, birth6, category, target
+    )
+    return (target, amount) if scope is not None else (None, None)
 
 
 def _other_source_amount(index, company, person, birth6, category, year_month, source):
@@ -237,7 +287,8 @@ def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
         row["연령"] = age
 
         lagging = []
-        adjacent = []
+        late = []
+        prior = []
         missing = []
         exempt = []
         short_days = []
@@ -245,6 +296,7 @@ def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
         row["동명이인"] = name_counts.get((company, person, year_month), 1) > 1
         evidence_gaps = []
         ambiguous_hits = []
+        retirement_month = None
         for category in CHECK_CATEGORIES:
             label, amount, hit_month, scope, source, ambiguous = _lookup(
                 index, company, person, birth6, category, year_month
@@ -280,12 +332,23 @@ def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
                     short_days.append(category)
                 else:
                     missing.append(category)
+                # 당월·차월에 없을 때만 전월을 본다. 금액은 채택하지 않고 단서로만
+                # 남긴다 -- 전월 근무분일 수도, 당월 미신고일 수도 있어서다.
+                # 적용제외로 내린 건에도 붙인다: 전월에 부과됐다는 건 오히려
+                # "적용 대상이었다"는 반증이라 담당자가 봐야 한다.
+                prior_month, prior_amount = _prior_hit(
+                    index, company, person, birth6, category, year_month
+                )
+                if prior_month:
+                    prior.append((category, prior_month, prior_amount))
+                    row[category] += f" +전월({prior_month})"
             elif label != "당월":
-                # 인접월에서 잡힌 것은 "미부과"가 아니다 -- 건강·장기요양은 차월 반영이
-                # 정상 범위(담당자 의견)이고, 연금·퇴직공제는 신고 지연 의심이라
-                # 확인 대상이긴 하지만 아예 안 낸 것과는 구분해서 표시한다.
-                (lagging if category in LAGGING_CATEGORIES else adjacent).append(category)
+                # 차월에서 잡힌 것은 "미부과"가 아니다 -- 건강·장기요양은 가입/해지의
+                # 차월 반영, 연금·퇴직공제는 신고 지연 쪽이다. 사유가 다르니 따로
+                # 담고, 둘 다 담당자 수동검사 대상으로 올린다(담당자 의견 5번).
+                (lagging if category in LAGGING_CATEGORIES else late).append(category)
             if category == "retirement" and hit_month:
+                retirement_month = hit_month
                 key = (
                     (company, person, birth6, hit_month, category)
                     if scope == "birth"
@@ -293,13 +356,20 @@ def cross_check(labor_summaries, premium_records, day_diff_tolerance=1.0):
                 )
                 row["퇴직공제_근로일수"] = index["sources"][source][scope][1].get(key)
 
+        # 일수 비교는 같은 달끼리만 뜻이 있다. 퇴직공제가 차월 신고분에서 잡혔으면
+        # 이 달 출역과 다음 달 신고일수를 빼는 셈이라 편차가 나오는 게 당연하다 --
+        # 그건 이미 "신고지연" 항목으로 올라가 있으니 일수차이로 또 세지 않는다.
         reported = row.get("퇴직공제_근로일수")
+        row["퇴직공제_신고월"] = retirement_month
         row["일수차이"] = (
-            round(summary["출역일수_계산"] - reported, 1) if reported is not None else None
+            round(summary["출역일수_계산"] - reported, 1)
+            if reported is not None and retirement_month == year_month
+            else None
         )
         row["_missing"] = missing
         row["_lagging"] = lagging
-        row["_adjacent"] = adjacent
+        row["_late"] = late
+        row["_prior"] = prior
         row["_exempt"] = exempt
         row["_short_days"] = short_days
         row["_evidence_gaps"] = evidence_gaps
@@ -339,24 +409,40 @@ def _labels(categories):
     return ", ".join(CATEGORY_LABELS[c] for c in categories)
 
 
+TIER_REVIEW = "확인필요"
+TIER_MANUAL = "수동검사"
+TIER_OK = "정상"
+
+
 def _classify(rows, tolerance):
-    """판정을 우선 확인(review)과 참고(note)로 나눈다 -- 섞으면 진짜 봐야 할 건이
-    정상 범위의 차월 반영에 묻힌다(실측: 나이·인접월을 구분 안 했을 때 383명 중
-    209명이 "확인필요"로 올라왔다)."""
+    """판정을 확인필요(review) / 수동검사(manual) / 참고(note) 3단계로 나눈다.
+
+    2단계였을 때 담당자가 말한 "수동 검사" 대상이 갈 곳이 없었다. 차월 반영을
+    확인필요에 넣으면 진짜 어긋난 건이 묻히고(실측: 나이·인접월을 구분 안 했을 때
+    383명 중 209명이 확인필요), 참고로 내리면 정상 인원에 섞여 검사 목록이 사라진다.
+    담당자는 그 둘 다 원한 적이 없다 -- "수동 검사해야 함"이라고 했다.
+
+    - 확인필요: 자료끼리 어긋난 건 (미부과 / 일수차이 / 증빙-원장 불일치 / 동명이인)
+    - 수동검사: 가입·해지·신고 시점을 사람이 봐야 판단되는 건 (차월반영 / 신고지연 / 전월부과)
+    - 참고: 규칙상 미부과가 정상인 건 (연금 60세 / 월 8일 미만)
+    """
     modal = _modal_diff(rows)
     for row in rows:
         baseline = modal.get((row["company_key"], row["year_month"]), 0.0)
         row["업체공통편차"] = baseline
 
-        review, note = [], []
+        review, manual, note = [], [], []
         if row["_missing"]:
             review.append(f"미부과_확인필요({_labels(row['_missing'])})")
-        if row["_adjacent"]:
-            review.append(f"인접월반영_신고지연의심({_labels(row['_adjacent'])})")
 
         diff = row["일수차이"]
         if diff is None:
-            note.append("퇴직공제_신고없음" if not row["_missing"] else None)
+            if row["퇴직공제_신고월"] and row["퇴직공제_신고월"] != row["year_month"]:
+                # 차월 신고분에서 잡혀 일수 비교를 건너뛴 경우. 아래 신고지연
+                # 항목이 같은 사실을 이미 말하므로 여기서는 조용히 넘어간다.
+                pass
+            elif not row["_missing"]:
+                note.append("퇴직공제_신고없음")
         elif abs(diff - baseline) > tolerance:
             review.append(f"일수차이_확인필요({diff:+g}일, 업체공통 {baseline:+g}일)")
 
@@ -374,8 +460,21 @@ def _classify(rows, tolerance):
             # 비목이 하나라도 있으면 서로의 값을 집었을 수 있어 확인 대상에 올린다.
             review.append("동명이인_수동확인")
 
+        # --- 수동검사: 담당자 의견 5번이 지목한 두 현상 + 전월부과 -----------
         if row["_lagging"]:
-            note.append(f"차월반영_추정({_labels(row['_lagging'])})")
+            manual.append(f"차월반영_수동검사({_labels(row['_lagging'])})")
+        if row["_late"]:
+            manual.append(f"신고지연_수동검사({_labels(row['_late'])})")
+        if row["_prior"]:
+            manual.append(
+                "전월부과_수동확인("
+                + "; ".join(
+                    f"{CATEGORY_LABELS[c]} {m} {a:,}" if a is not None else f"{CATEGORY_LABELS[c]} {m}"
+                    for c, m, a in row["_prior"]
+                )
+                + ")"
+            )
+
         if row["_exempt"]:
             note.append(f"연금_적용제외({row['연령']}세)")
         if row["_short_days"]:
@@ -384,10 +483,12 @@ def _classify(rows, tolerance):
                 f"{_labels(row['_short_days'])})"
             )
 
-        note = [n for n in note if n]
-        row["판정"] = " / ".join(review + note) if (review or note) else "정상"
+        parts = review + manual + note
+        row["판정"] = " / ".join(parts) if parts else "정상"
+        row["구분"] = TIER_REVIEW if review else (TIER_MANUAL if manual else TIER_OK)
         row["needs_review"] = bool(review)
-        for key in ("_missing", "_lagging", "_adjacent", "_exempt", "_short_days",
+        row["needs_manual"] = bool(manual) and not review
+        for key in ("_missing", "_lagging", "_late", "_prior", "_exempt", "_short_days",
                     "_evidence_gaps", "_birth_matched", "_ambiguous_hits"):
             del row[key]
 
@@ -419,14 +520,15 @@ def _summarize(rows):
     summary = {}
     for row in rows:
         key = (row["company"], row["year_month"])
-        agg = summary.setdefault(key, {"people": 0, "정상": 0, "확인필요": 0, "차월반영_추정": 0})
+        agg = summary.setdefault(
+            key, {"people": 0, "정상": 0, "확인필요": 0, "수동검사": 0, "차월반영": 0}
+        )
         agg["people"] += 1
-        if not row["needs_review"]:
-            agg["정상"] += 1
-        else:
-            agg["확인필요"] += 1
-        if "차월반영_추정" in row["판정"]:
-            agg["차월반영_추정"] += 1
+        agg[row["구분"]] += 1
+        # 차월반영은 수동검사의 일부다 -- 담당자가 "가입/해지 차월 반영"으로 설명한
+        # 몫이 얼마나 되는지 따로 보여주려고 별도로 센다.
+        if "차월반영_수동검사" in row["판정"]:
+            agg["차월반영"] += 1
     return [
         {"company": company, "year_month": year_month, **agg}
         for (company, year_month), agg in sorted(summary.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or ""))
@@ -447,6 +549,7 @@ CROSS_HEADERS = [
     ("출역일수", "출역일수"),
     ("총공수", "총공수"),
     ("퇴직공제 근로일수", "퇴직공제_근로일수"),
+    ("퇴직공제 신고월", "퇴직공제_신고월"),
     ("일수차이", "일수차이"),
     ("업체공통편차", "업체공통편차"),
     ("건강보험", "health"),
@@ -457,6 +560,7 @@ CROSS_HEADERS = [
     ("실지급액", "실지급액"),
     ("동명이인", "동명이인"),
     ("증빙대조", "증빙대조"),
+    ("구분", "구분"),
     ("판정", "판정"),
 ]
 
@@ -470,13 +574,19 @@ def build_cross_check_workbook(rows, reverse, summary):
     for row in sorted(rows, key=lambda r: (r["company"] or "", r["year_month"] or "", r["person"] or "")):
         sheet.append([row.get(key) for _, key in CROSS_HEADERS])
 
-    review = workbook.create_sheet("확인필요만")
-    review.append([label for label, _ in CROSS_HEADERS])
-    for row in sorted(
-        (r for r in rows if r["needs_review"]),
-        key=lambda r: (r["company"] or "", r["year_month"] or "", r["person"] or ""),
-    ):
-        review.append([row.get(key) for _, key in CROSS_HEADERS])
+    def _sheet(title, keep):
+        sheet = workbook.create_sheet(title)
+        sheet.append([label for label, _ in CROSS_HEADERS])
+        for row in sorted(
+            (r for r in rows if keep(r)),
+            key=lambda r: (r["company"] or "", r["year_month"] or "", r["person"] or ""),
+        ):
+            sheet.append([row.get(key) for _, key in CROSS_HEADERS])
+
+    _sheet("확인필요만", lambda r: r["needs_review"])
+    # 담당자 의견 5번이 "수동 검사해야 함"이라고 한 몫. 확인필요와 섞으면 성격이
+    # 다른 두 일이 한 목록이 되고, 참고로 내리면 검사할 목록 자체가 사라진다.
+    _sheet("수동검사 대상", lambda r: r["needs_manual"])
 
     ghost = workbook.create_sheet("보험료만 존재")
     ghost.append(["업체명", "연월", "성명", *[CATEGORY_LABELS[c] for c in CHECK_CATEGORIES]])
@@ -485,9 +595,9 @@ def build_cross_check_workbook(rows, reverse, summary):
                       *[row.get(c) for c in CHECK_CATEGORIES]])
 
     stats = workbook.create_sheet("업체월별 요약")
-    stats.append(["업체명", "연월", "인원", "정상", "확인필요", "차월반영 추정"])
+    stats.append(["업체명", "연월", "인원", "정상", "확인필요", "수동검사", "(그중) 차월반영"])
     for row in summary:
         stats.append([row["company"], row["year_month"], row["people"],
-                      row["정상"], row["확인필요"], row["차월반영_추정"]])
+                      row["정상"], row["확인필요"], row["수동검사"], row["차월반영"]])
 
     return workbook

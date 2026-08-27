@@ -7,6 +7,8 @@
   --tertiary-bg: #ccfbf1;
   --amber: #d97706;
   --amber-bg: #fef3c7;
+  --sky: #0369a1;
+  --sky-bg: #e0f2fe;
 
   --bg: #f8f9ff;
   --card: #ffffff;
@@ -642,6 +644,9 @@ tr.row-diff .label-cell { color: var(--diff-border); }
 .row-amount { font-weight: 700; font-family: var(--font-mono); }
 .row-meta { color: var(--muted); font-size: 11px; }
 .row-review { background: var(--amber-bg); }
+/* 수동검사는 "자료가 어긋난 건"이 아니라 "사람이 판단할 건"이라 확인필요(주황)와
+   색을 나눈다 -- 같은 색이면 등급을 나눈 의미가 화면에서 사라진다. */
+.row-manual { background: var(--sky-bg); }
 .row-correction { background: var(--diff-bg); }
 .badge-review { background: var(--diff-bg); color: var(--diff-border); }
 .badge-correction { background: #ffd0d0; color: #a30000; }
@@ -654,6 +659,37 @@ tr.row-diff .label-cell { color: var(--diff-border); }
 .hr-cost-table tbody tr:nth-child(even) { background: var(--card-alt); }
 .hr-cost-table thead th { position: sticky; top: 0; z-index: 1; }
 .hr-cost-table .cell-zero { color: var(--muted); }
+
+.tier-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 4px;
+  flex-wrap: wrap;
+}
+.tier-tab {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tier-tab:hover { background: var(--card-alt); }
+.tier-tab.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.tier-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.tier-chip-review { background: var(--amber-bg); color: var(--amber); }
+.tier-chip-manual { background: var(--sky-bg); color: var(--sky); }
 
 .table-filter {
   display: block;

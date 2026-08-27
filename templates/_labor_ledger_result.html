@@ -115,14 +115,27 @@
     그 자리에 위 노무비 출역 데이터를 넣었습니다. 출입기록이 들어오면 같은 대조 로직에 소스만 추가하면 됩니다.
   </p>
   <p class="mode-desc">
-    건강 · 장기요양은 가입/해지가 차월에 반영되고 하도급사 신고 지연도 겹쳐 한 달씩 어긋나는 게 정상 범위라,
-    당월 → 차월 → 전월 순으로 찾아 <strong>어느 달에 잡혔는지를 그대로 표시</strong>합니다.
+    담당자 의견 5번이 말한 두 현상 — 가입/해지의 <strong>차월 반영</strong>과 하도급사 <strong>신고 지연</strong> — 은
+    둘 다 방향이 후행이라, 당월 → <strong>차월(M+1)</strong> 순으로만 찾아 채택합니다.
+    <strong>전월(M−1)은 채택하지 않습니다</strong>: 전월에 금액이 있는 건 그 사람이 전월에도 일했다는 뜻일 가능성이
+    크고, 실측에서 그 금액을 당월 것으로 끌어오는 바람에 <em>진짜 미신고가 덮이고 있었습니다</em>
+    (신보 26.03에 출역 24~25일인데 퇴직공제 신고가 없는 인원에게 26.02 금액이 붙어 있었음).
+    전월 금액은 지우지 않고 <code>전월부과_수동확인</code>으로 판정에 남깁니다.
     국민연금 60세 이상 적용제외와 월 8일 미만 적용제외는 "참고"로 내려 확인 대상에서 제외했습니다.
     퇴직공제부금은 근로일수 비례라 출역일수와 직접 비교하되, 같은 업체 · 같은 달에서 다수가 똑같이 어긋나면
     그 업체의 신고 규칙 차이로 보고 <strong>업체공통편차</strong>를 기준선으로 삼습니다.
+    (일수 비교는 <strong>같은 달 신고분끼리만</strong> 합니다 — 차월 신고분과 빼면 편차가 나오는 게 당연하므로.)
+  </p>
+  <p class="mode-desc">
+    판정은 <strong class="tier-chip tier-chip-review">확인필요</strong> 자료끼리 어긋난 건(미부과 · 일수차이 · 증빙대비 원장불일치 · 동명이인) /
+    <strong class="tier-chip tier-chip-manual">수동검사</strong> 담당자가 가입 · 해지 · 신고 시점을 직접 봐야 판단되는 건(차월반영 · 신고지연 · 전월부과) /
+    <strong>정상 · 참고</strong> 규칙상 미부과가 정상인 건, 이렇게 셋으로 나눕니다.
+    담당자 의견 5번은 차월 반영을 "<strong>수동 검사해야 함</strong>"이라고 했지 정상이라고 하지 않았으므로,
+    참고로 내려 정상 인원에 묻히지 않게 별도 등급으로 둡니다.
   </p>
   <div class="evidence-summary">
     대조 {{ cross_rows|length }}명 · <strong>확인필요 {{ cross_review_count }}명</strong>
+    · <strong>수동검사 {{ cross_manual_count }}명</strong>
     · 보험료만 존재 {{ cross_reverse|length }}명
   </div>
 
@@ -136,7 +149,8 @@
           <th class="sortable" data-type="number">인원</th>
           <th class="sortable" data-type="number">정상</th>
           <th class="sortable" data-type="number">확인필요</th>
-          <th class="sortable" data-type="number">차월반영 추정</th>
+          <th class="sortable" data-type="number">수동검사</th>
+          <th class="sortable" data-type="number">(그중) 차월반영</th>
         </tr>
       </thead>
       <tbody>
@@ -147,14 +161,20 @@
           <td>{{ row.people }}</td>
           <td>{{ row['정상'] }}</td>
           <td>{{ row['확인필요'] }}</td>
-          <td>{{ row['차월반영_추정'] }}</td>
+          <td>{{ row['수동검사'] }}</td>
+          <td>{{ row['차월반영'] }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <h4>인별 대조 (확인필요 먼저)</h4>
+  <h4>인별 대조 (확인필요 → 수동검사 → 정상 순)</h4>
+  <div class="tier-tabs" data-target="table-cross">
+    <button type="button" class="tier-tab is-active" data-tier="">전체 {{ cross_rows|length }}</button>
+    <button type="button" class="tier-tab" data-tier="확인필요">확인필요 {{ cross_review_count }}</button>
+    <button type="button" class="tier-tab" data-tier="수동검사">수동검사 {{ cross_manual_count }}</button>
+  </div>
   <input type="text" class="table-filter" data-target="table-cross" placeholder="업체명 · 성명 · 판정 내용 검색">
   <div class="table-scroll table-scroll-tall">
     <table class="cmp-table hr-cost-table sortable-table" id="table-cross">
@@ -167,7 +187,7 @@
       </thead>
       <tbody>
         {% for row in cross_rows %}
-        <tr {% if row.needs_review %}class="row-review"{% endif %}>
+        <tr data-tier="{{ row['구분'] }}" class="{% if row.needs_review %}row-review{% elif row.needs_manual %}row-manual{% endif %}">
           {% for _label, key in cross_headers %}
           <td {% if loop.index <= 5 %}class="label-cell"{% endif %}>
             {%- set v = row.get(key) -%}

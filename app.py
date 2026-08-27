@@ -595,10 +595,12 @@ def api_labor_ledger_extract():
         by_company=_ledger_by_company(summaries),
         attendance_count=len(attendance),
         needs_review_count=sum(1 for s in summaries if s["needs_review"]),
-        cross_rows=sorted(cross_rows, key=lambda r: (not r["needs_review"], r["company"] or "", r["year_month"] or "", r["person"] or "")),
+        # 확인필요 -> 수동검사 -> 정상 순. 담당자가 위에서부터 훑으면 되도록.
+        cross_rows=sorted(cross_rows, key=lambda r: (0 if r["needs_review"] else (1 if r["needs_manual"] else 2), r["company"] or "", r["year_month"] or "", r["person"] or "")),
         cross_reverse=cross_reverse,
         cross_summary=cross_summary,
         cross_review_count=sum(1 for r in cross_rows if r["needs_review"]),
+        cross_manual_count=sum(1 for r in cross_rows if r["needs_manual"]),
         cross_headers=CROSS_HEADERS,
     )
     return jsonify({"html": html, "token": token})

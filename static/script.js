@@ -549,16 +549,34 @@ function setupHrCostCategoryFilter() {
   applyFilter();
 }
 
+// 텍스트 검색과 등급 탭이 같은 표를 함께 걸러야 해서 한 곳에서 판정한다 --
+// 각자 row.hidden을 건드리면 나중에 실행된 쪽이 앞의 조건을 지운다.
+function applyRowFilters(table) {
+  if (!table) return;
+  const input = document.querySelector(`.table-filter[data-target="${table.id}"]`);
+  const tabs = document.querySelector(`.tier-tabs[data-target="${table.id}"]`);
+  const query = input ? input.value.trim().toLowerCase() : "";
+  const active = tabs ? tabs.querySelector(".tier-tab.is-active") : null;
+  const tier = active ? active.dataset.tier : "";
+  table.querySelectorAll("tbody tr").forEach((row) => {
+    const matchesText = !query || row.textContent.toLowerCase().includes(query);
+    const matchesTier = !tier || row.dataset.tier === tier;
+    row.hidden = !(matchesText && matchesTier);
+  });
+}
+
 function setupTableFilters() {
   document.querySelectorAll(".table-filter").forEach((input) => {
     input.addEventListener("input", () => {
-      const table = document.getElementById(input.dataset.target);
-      if (!table) return;
-      const query = input.value.trim().toLowerCase();
-      table.querySelectorAll("tbody tr").forEach((row) => {
-        const text = row.textContent.toLowerCase();
-        row.hidden = query.length > 0 && !text.includes(query);
-      });
+      applyRowFilters(document.getElementById(input.dataset.target));
+    });
+  });
+  document.querySelectorAll(".tier-tabs").forEach((tabs) => {
+    tabs.addEventListener("click", (event) => {
+      const button = event.target.closest(".tier-tab");
+      if (!button) return;
+      tabs.querySelectorAll(".tier-tab").forEach((b) => b.classList.toggle("is-active", b === button));
+      applyRowFilters(document.getElementById(tabs.dataset.target));
     });
   });
 }
